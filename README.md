@@ -108,6 +108,19 @@ DEVELOPER_DIR=/Applications/Xcode-16.2.0.app/Contents/Developer flutter build ma
 - 构建：`flutter build apk --debug`（需要 JDK 17 + Android SDK 36），产物
   `app/build/app/outputs/flutter-apk/app-debug.apk`，拷到手机安装即可。
 
+## iOS（Scripting 脚本）
+
+`ios/scripting/cheese-tiger-updater/` 是运行在 [Scripting](https://scripting.fuqiuluo.com/)
+里的轻量更新器，不需要开发者账号：
+
+- 检查 `viui798/viui-tiger-sentense` 最新 Release，优先下载增量包；
+- 在「文件」App 里选择仓输入法（`我的 iPhone/Hamster/Rime`）或元书的 Rime 目录，
+  保存书签后下次不用再选；
+- 去掉增量包的 `update/` 前缀后写入目录，跳过 `user.yaml`、`*.userdb` 等个人数据，
+  被覆盖的旧文件备份到 `.cheese-tiger-backup/<时间戳>/`；
+- 安装后调用 `hamster://` / `hamster3://` 请求输入法重新部署；
+- 限制：不执行 `DELTA.json` 里的删除列表；只适用于 iOS；尚未在真机验证。
+
 ## 备用界面（Python）
 
 ```bash

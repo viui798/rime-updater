@@ -105,7 +105,8 @@
   启动请求 `MANAGE_EXTERNAL_STORAGE`（自用分发，不适合上架）；部署无法自动触发，
   提示用户在 Trime 里点刷新；手动添加目录在 Android 上隐藏。模拟器（API 35）已跑通
   检查 / 预演 / 正式更新，**未在 Android 实机验证**
-- iOS 平台目录已生成，但更新逻辑尚未接入
+- iOS 平台目录已生成，更新逻辑尚未接入；另提供 `ios/scripting/` 下的
+  Scripting App 轻量更新器（无需开发者账号，待真机验证）
 
 ## 3. 文件说明
 
@@ -129,7 +130,8 @@
 | `app/tool/verify.dart` | 真实下载（走缓存）+ 对首个目录预演，不打开界面 |
 | `app/tool/make_dmg.sh` | 生成 macOS DMG（含「应用程序」软链接） |
 | `app/android/app/src/main/kotlin/com/viui798/rime_updater/MainActivity.kt` | Android MethodChannel：所有文件权限、系统文件选择 |
-| `.github/workflows/build.yml` | 推 `v*` tag 或手动触发，构建 macOS DMG / Windows zip |
+| `ios/scripting/cheese-tiger-updater/` | Scripting App 版 iOS 更新器（检查 Release、写入 Rime 目录、URL scheme 部署） |
+| `.github/workflows/build.yml` | 推 `v*` tag 或手动触发，构建 macOS DMG / Windows zip / Android APK |
 | `app/lib/core/settings_store.dart` | 设置读写（与 Python 版同一路径） |
 | `update_desktop.py` | Python 核心：profile 探测、资产选择、下载校验、解包应用、部署、快照/回滚 |
 | `backup_userdata.py` | 用户数据备份 / 恢复：个人数据打包 zip，`--restore` 解回用户目录 |
@@ -355,6 +357,11 @@ curl -s http://127.0.0.1:8766/api/state
    `hidden_dirs`，`detectProfiles(hidden:)` 跳过；手动目录删除只清 `custom_dirs` /
    `custom_names`；再次手动添加会自动解除隐藏。实机截图确认三行都有「⋮」，
    隐藏 Weasel-RS 目录后识别数 3 → 2；`flutter test` 33 项通过
+27. iOS Scripting 脚本：新增 `ios/scripting/cheese-tiger-updater/`（script.json + index.tsx +
+   utils），检查芝士虎整 Release、优先增量包、去掉 `update/` 前缀、跳过个人数据、
+   覆盖前备份到 `.cheese-tiger-backup`，安装后用 `hamster://` / `hamster3://` 请求部署；
+   文件与下载工具改编自 `BlackCCCat/Scripting-Scripts`（MIT，README 已注明）。
+   esbuild 语法检查通过；**未在 iOS 真机 / Scripting App 验证**；不执行 DELTA 删除列表。
 
 ## 7. 下一步（按优先级）
 
@@ -367,7 +374,10 @@ curl -s http://127.0.0.1:8766/api/state
 4. **Android 真机验证**：模拟器（API 35）已验证启动、权限授予、识别 `/storage/emulated/0/rime`、
    检查更新、预演与正式更新；真机还需确认 MANAGE_EXTERNAL_STORAGE 授权流程、
    Trime 实际目录（可能被用户改过）以及更新后在 Trime 里刷新部署的体验。
-5. **iOS 接入**：平台目录已生成，只能走快捷指令 / 分享安装，需要单独设计。
+5. **iOS Scripting 脚本验证**：在 iPhone / iPad 的 Scripting App 里导入
+   `ios/scripting/cheese-tiger-updater`，用仓输入法（`文件/Hamster/Rime`）与元书实际跑
+   检查 / 安装 / 部署；若 Scripting API 有差异，按真机报错调整 `utils/`。
+   也可以用仓 / 元书自带的 zip 导入，但增量包带 `update/` 前缀，需先去掉（脚本已处理）。
 6. **界面增强**：显示落后版本数；失败自动重试；把 `backup_userdata.py` 的备份/恢复
    用 Dart 重做并接进界面。
 7. **体验**：Dart 桌面端不支持 socks5，只支持 HTTP 代理；可引入第三方包补 socks5。
@@ -384,22 +394,21 @@ curl -s http://127.0.0.1:8766/api/state
 
 ## 9. 交接快照（每次会话结束更新这一节）
 
-> 2026-11-04 · `main`（Android 适配已推送 `76471cd`；Windows 实机改动在此基础上变基）
+> 2026-11-04 · `main`（Android 已推送 `76471cd`；Windows 实机改动 + iOS 脚本在此之后）
 
 - **已完成并已推送**：Flutter 客户端（`app/`）、GitHub 方案 / 本地 zip / 换方案、
   手动目录与改名、可拖动布局、WebDAV 云同步、文件夹式同步库（上传 / 在线编辑 / 删除）、
   启动不联网与 10 分钟检查缓存、GitHub Actions 三平台构建、Android 端（权限、Trime 目录、
   文件选择、窄屏 UI、Actions android job）
-- **本会话新增（待推送）**：Windows 开发环境（Flutter 3.47.9 + VS BuildTools 2022）；
-  小狼毫 / 虎韵分别识别（注册表 `RimeUserDir` 与 `%LOCALAPPDATA%\Tigrime\Rime`）；
-  虎韵部署 `Tigrime.Deployer.exe`；部署改异步；设备行「⋮」删除 + `hidden_dirs` 记忆
+- **本会话新增（待推送）**：Windows 实机（小狼毫 / 虎韵分别识别、`Tigrime.Deployer.exe`
+  部署改异步、设备「⋮」删除 + `hidden_dirs`）；iOS Scripting 轻量更新器（未真机验证）
 - **已验证**：`dart analyze` 无问题；`flutter test` 33 项通过（Windows 上个别临时目录
   清理偶发 `errno 32`，重跑即过）；macOS 实跑（三前端识别、预演 8 文件）；Android 模拟器
   （API 35）检查 / 预演 / 正式更新 + 快照；`flutter build windows --release` 成功并安装到
-  `%LOCALAPPDATA%\Programs\RimeUpdater`；界面「一键更新」实跑两设备 0.3.1/0.3.2 →
+  `%LOCALAPPDATA%\Programs\RimeUpdater`；Windows 界面「一键更新」实跑两设备 0.3.1/0.3.2 →
   v0.3.23（快照 + 部署成功）
-- **未验证（优先做）**：Windows 界面回滚；Android 真机 + Trime 实际部署；
-  真实 WebDAV 账号（坚果云 / Nextcloud，注意 301/409）
+- **未验证（优先做）**：Windows 界面回滚；Android 真机 + Trime 实际部署；iOS Scripting
+  真机；真实 WebDAV 账号（坚果云 / Nextcloud，注意 301/409）
 - **不要改的约定**：启动不自动请求 GitHub；更新覆盖前必须有快照 / 备份；
   `*.userdb`、`user.yaml` 等个人数据不参与方案覆盖；云同步只走 `<kind>/files/<相对路径>`
 - **本机数据**：设置 / 设备 ID / 备份都在第 0 节列出的应用支持目录，不在仓库里

@@ -1,0 +1,24 @@
+{
+  "name": "芝士虎整更新器",
+  "version": "1.0.0",
+  "description": "在 iPhone / iPad 上下载芝士虎整增量包，并安装到仓输入法或元书的 Rime 用户目录",
+  "author": {
+    "name": "viui798",
+    "homepage": "https://github.com/viui798/rime-updater"
+  },
+  "icon": "keyboard.fill",
+  "color": "rgba(180, 83, 9, 1)",
+  "runInApp": false,
+  "intentInputTypes": [],
+  "localizedNames": {
+    "zh": "芝士虎整更新器"
+  },
+  "localizedDescriptions": {
+    "zh": "下载并安装芝士虎整方案更新"
+  },
+  "remoteResource": {
+    "url": "https://github.com/viui798/rime-updater/tree/main/ios/scripting/cheese-tiger-updater",
+    "hash": "",
+    "autoUpdateInterval": 86400
+  }
+}
