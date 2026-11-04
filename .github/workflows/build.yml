@@ -23,7 +23,7 @@ jobs:
         working-directory: app
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
-          if [ -z "$VERSION" ] || [ "$VERSION" = "main" ]; then VERSION="1.0.0"; fi
+          if [ -z "$VERSION" ] || [ "$VERSION" = "main" ]; then VERSION="0.10.0"; fi
           ./tool/make_dmg.sh "$VERSION"
       - uses: actions/upload-artifact@v4
         with:
@@ -46,7 +46,7 @@ jobs:
         working-directory: app
         shell: pwsh
         run: |
-          $version = if ($env:GITHUB_REF_NAME -like "v*") { $env:GITHUB_REF_NAME.Substring(1) } else { "1.0.0" }
+          $version = if ($env:GITHUB_REF_NAME -like "v*") { $env:GITHUB_REF_NAME.Substring(1) } else { "0.10.0" }
           Compress-Archive -Path "build\windows\x64\runner\Release\*" -DestinationPath "build\RimeUpdater-v$version-windows.zip"
       - name: Build installer (Inno Setup)
         working-directory: app
@@ -99,7 +99,7 @@ jobs:
         with:
           files: dist/*
           body: |
-            # Rime 更新器 v1.0.0
+            # Rime 更新器 v0.10
 
             管理方案，让每台设备同步向前：检查版本 → 预演变更 → 一键更新 → 需要时回滚，
             个人数据（词库、自造词、开关记忆）永远不参与覆盖。默认对接
@@ -110,9 +110,9 @@ jobs:
 
             | 平台 | 文件 | 说明 |
             |---|---|---|
-            | macOS | `RimeUpdater-v1.0.0-macos.dmg` | 打开后把 App 拖进「应用程序」。首次打开被拦时：右键 →「打开」，或到「系统设置 → 隐私与安全性」点「仍要打开」（未签名公证） |
-            | Windows（安装版） | `RimeUpdater-v1.0.0-Setup.exe` | Inno Setup 用户级安装，无需管理员，带开始菜单与卸载项 |
-            | Windows（免安装） | `RimeUpdater-v1.0.0-windows.zip` | 解压即用，删文件夹即卸载。Windows 10/11 **x64**（ARM 可模拟运行） |
+            | macOS | `RimeUpdater-v0.10-macos.dmg` | 打开后把 App 拖进「应用程序」。首次打开被拦时：右键 →「打开」，或到「系统设置 → 隐私与安全性」点「仍要打开」（未签名公证） |
+            | Windows（安装版） | `RimeUpdater-v0.10-Setup.exe` | Inno Setup 用户级安装，无需管理员，带开始菜单与卸载项 |
+            | Windows（免安装） | `RimeUpdater-v0.10-windows.zip` | 解压即用，删文件夹即卸载。Windows 10/11 **x64**（ARM 可模拟运行） |
             | Android（通用） | `app-release.apk` | 所有架构通用，约 53MB |
             | Android（按架构） | `app-arm64-v8a-*.apk` 等 | 约 18MB，推荐；手机绝大多数为 arm64-v8a |
 
