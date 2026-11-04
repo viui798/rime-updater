@@ -59,6 +59,12 @@ class UpdateError(Exception):
 
 class FullPackageRequired(UpdateError):
     """增量包声明 full_required，必须改用完整包。"""
+    pass
+
+
+class DeltaBaseMismatch(FullPackageRequired):
+    """增量包的基座版本与已装版本不一致，必须改用完整包。"""
+    pass
 
 
 def posix(path):
@@ -284,6 +290,15 @@ def apply_zip(zip_path, target, version, dry_run, expected=None, log=print,
             delta = json.loads(zf.read(delta_name))
         if delta and delta.get("full_required"):
             raise FullPackageRequired("该增量包要求完整包（模型有变更），请改用完整 zip")
+        if delta and delta.get("from"):
+            # 基座校验：增量包只覆盖 from->to 的差异，底子不对就必须完整包。
+            # 已装版本未知（首次安装/无标记）也一律走完整包，宁重勿缺。
+            local = (read_local_version(target) or "").lstrip("v").strip()
+            base = str(delta["from"]).lstrip("v").strip()
+            if not local or local != base:
+                raise DeltaBaseMismatch(
+                    f"增量包基座 {base} 与已装版本 {local or '未知'} 不一致，"
+                    "请改用完整 zip")
 
         stamp = time.strftime("%Y%m%d-%H%M%S")
         backup_root = target / BACKUP_DIR / stamp
@@ -644,15 +659,50 @@ def main():
         if input("继续？[y/N] ").strip().lower() not in ("y", "yes"):
             return
 
-    for p in profiles:
-        print(f"\n[{p['label']}] {p['path']}")
-        try:
-            apply_zip(zip_path, p["path"], version, args.dry_run, expected,
-                      snapshot=args.snapshot)
-        except UpdateError as exc:
+    def apply_all(zip_path_arg, expected_arg):
+        for p in profiles:
+            print(f"\n[{p['label']}] {p['path']}")
+            try:
+                apply_zip(zip_path_arg, p["path"], version, args.dry_run,
+                          expected_arg, snapshot=args.snapshot)
+            except DeltaBaseMismatch as exc:
+                raise
+            except FullPackageRequired as exc:
+                raise
+            except UpdateError as exc:
+                sys.exit(f"✗ {exc}")
+            if args.deploy:
+                deploy(p, args.dry_run, args.restart)
+
+    try:
+        apply_all(zip_path, expected)
+    except DeltaBaseMismatch as exc:
+        if not release or args.source:
             sys.exit(f"✗ {exc}")
-        if args.deploy:
-            deploy(p, args.dry_run, args.restart)
+        print(f"⚠ {exc}")
+        print("  自动改用完整包 ...")
+        full = next((a for a in release.get("assets") or []
+                     if a.get("name", "").endswith(".zip")
+                     and "-update" not in a.get("name", "")), None)
+        if not full:
+            sys.exit("✗ 该 Release 没有完整包资产，无法回退")
+        sha_asset = next((a for a in release.get("assets") or []
+                          if a.get("name") == full["name"] + ".sha256"), None)
+        expected_full = None
+        if sha_asset:
+            sha_path = cache_dir / sha_asset["name"]
+            if not sha_path.exists() and not download(
+                    sha_asset["browser_download_url"], token, str(sha_path), opener):
+                sys.exit("✗ SHA256 文件下载失败")
+            expected_full = read_sha256(sha_path)
+        out = cache_dir / full["name"]
+        if not out.exists() or not (expected_full and verify_hash(out, expected_full)):
+            print(f"下载 {full['name']} ...")
+            got = download(full["browser_download_url"], token, str(out), opener,
+                           expected_full)
+            if not got:
+                sys.exit("✗ 完整包下载或校验失败")
+        apply_all(str(out), expected_full)
 
 
 if __name__ == "__main__":

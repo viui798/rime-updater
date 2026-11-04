@@ -174,9 +174,18 @@ CheeseTigerSync/
 
 ### Windows
 
-1. 下载 Windows ZIP 并完整解压。
-2. 运行 `rime_updater.exe`，保留旁边的 DLL、`data/` 等文件。
-3. 勾选小狼毫、虎韵或手动目录，按同样流程检查、预演与更新。
+两种分发形式，任选其一：
+
+| 形式 | 文件 | 说明 |
+|---|---|---|
+| 安装版 | `RimeUpdater-v1.0.0-Setup.exe` | Inno Setup 安装包，用户级安装（无需管理员），带开始菜单与卸载项 |
+| 免安装版 | `RimeUpdater-v1.0.0-windows.zip` | 解压即用，删除文件夹即卸载 |
+
+系统要求：Windows 10 / 11 **64 位（x64）**。Windows on ARM 可直接运行 x64 版（系统自带模拟）；
+Flutter 的 Windows 桌面端只提供 x64 引擎，无 arm64 原生包，也不支持 32 位。
+
+1. 安装版直接运行 Setup；免安装版完整解压后运行 `rime_updater.exe`（保留旁边的 DLL、`data/` 等）。
+2. 勾选小狼毫、虎韵或手动目录，按同样流程检查、预演与更新。
 
 ### 桌面前端与部署
 

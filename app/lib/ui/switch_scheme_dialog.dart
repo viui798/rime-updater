@@ -122,7 +122,7 @@ class _SwitchSchemeDialogState extends State<SwitchSchemeDialog> {
                     const SizedBox(height: 4),
                     SelectableText(
                       switchBackupRoot,
-                      style: const TextStyle(fontFamily: 'Menlo', fontSize: 11),
+                      style: const TextStyle(fontFamily: 'Menlo', fontFamilyFallback: ['Consolas', 'monospace', 'Courier New'], fontSize: 11),
                     ),
                     const SizedBox(height: 8),
                     Text(

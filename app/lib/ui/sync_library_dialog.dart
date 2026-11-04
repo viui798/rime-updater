@@ -638,7 +638,7 @@ class _FileEditorDialogState extends State<_FileEditorDialog> {
             widget.path,
             style: theme.textTheme.bodySmall?.copyWith(
               color: theme.colorScheme.onSurfaceVariant,
-              fontFamily: 'Menlo',
+              fontFamily: 'Menlo', fontFamilyFallback: ['Consolas', 'monospace', 'Courier New'],
             ),
           ),
         ],
@@ -651,7 +651,7 @@ class _FileEditorDialogState extends State<_FileEditorDialog> {
           expands: true,
           maxLines: null,
           textAlignVertical: TextAlignVertical.top,
-          style: const TextStyle(fontFamily: 'Menlo', fontSize: 12, height: 1.5),
+          style: const TextStyle(fontFamily: 'Menlo', fontFamilyFallback: ['Consolas', 'monospace', 'Courier New'], fontSize: 12, height: 1.5),
           decoration: const InputDecoration(
             border: OutlineInputBorder(),
             contentPadding: EdgeInsets.all(10),

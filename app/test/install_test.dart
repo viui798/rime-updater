@@ -81,6 +81,59 @@ void main() {
     expect(readLocalVersion(dir.path), '');
   });
 
+  test('增量包基座不匹配会拒绝，匹配则放行', () {
+    final dir = Directory.systemTemp.createTempSync('rime-base-');
+    cleanupDir(dir);
+    File(p.join(dir.path, 'tiger_sentence.schema.yaml')).writeAsStringSync('SCHEMA');
+    File(p.join(dir.path, '.cheese-tiger-version')).writeAsStringSync('0.3.9\n');
+
+    final archive = Archive();
+    void add(String name, String content) {
+      final bytes = utf8.encode(content);
+      archive.addFile(ArchiveFile(name, bytes.length, bytes));
+    }
+
+    add('update/lua/db.lua', 'NEW-DB');
+    add(
+      'update/DELTA.json',
+      jsonEncode({'from': 'v0.3.23', 'to': 'v0.3.24', 'deletions': <String>[]}),
+    );
+    final zipPath = p.join(dir.path, 'delta.zip');
+    File(zipPath).writeAsBytesSync(ZipEncoder().encode(archive));
+
+    // 底子 0.3.9 ≠ 基座 0.3.23 → 必须拒绝且不动任何文件
+    expect(
+      () => applyZip(
+        zipPath: zipPath,
+        target: dir.path,
+        version: '0.3.24',
+        dryRun: false,
+        snapshot: true,
+        log: (_) {},
+        onFile: (_, __) {},
+      ),
+      throwsA(isA<FullPackageRequired>()),
+    );
+    expect(File(p.join(dir.path, 'lua/db.lua')).existsSync(), isFalse);
+    expect(readLocalVersion(dir.path), '0.3.9');
+
+    // 底子改成 0.3.23 → 放行
+    File(p.join(dir.path, '.cheese-tiger-version')).writeAsStringSync('0.3.23\n');
+    final logs = <String>[];
+    final stats = applyZip(
+      zipPath: zipPath,
+      target: dir.path,
+      version: '0.3.24',
+      dryRun: false,
+      snapshot: true,
+      log: logs.add,
+      onFile: (_, __) {},
+    );
+    expect(stats.copied, 1);
+    expect(File(p.join(dir.path, 'lua/db.lua')).readAsStringSync(), 'NEW-DB');
+    expect(readLocalVersion(dir.path), '0.3.24');
+  });
+
   test('full_required 的增量包会被识别', () {
     final dir = Directory.systemTemp.createTempSync('rime-full-');
     cleanupDir(dir);

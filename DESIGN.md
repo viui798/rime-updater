@@ -38,7 +38,8 @@
 
 ## 3. 字体与尺寸
 
-系统中文字体；版本、路径、日志用 Menlo（其他平台采用系统回退）。
+系统中文字体；版本、路径、日志用 Menlo（回退 Consolas / monospace / Courier New，
+Windows 与 Android 自动落到等宽族）。
 
 | 层级 | 规格 |
 |---|---|
