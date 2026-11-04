@@ -20,8 +20,26 @@ import {
 import { basename, storage } from "./utils/common"
 import { deployInputMethod, type InputMethod } from "./utils/deploy"
 import { list } from "./utils/fs"
-import { fetchLatest, type ReleaseInfo } from "./utils/github"
-import { downloadAsset, installZip } from "./utils/install"
+import {
+  DEFAULT_REPO,
+  fetchLatest,
+  parseRepo,
+  type ReleaseAsset,
+  type ReleaseInfo,
+} from "./utils/github"
+import {
+  downloadAsset,
+  inferVersionFromName,
+  installZip,
+  listBackups,
+  planZip,
+  removeBackup,
+  restoreBackup,
+  stageLocalZip,
+  BACKUP_DIR,
+  type BackupEntry,
+} from "./utils/install"
+import { switchScheme } from "./utils/switch_scheme"
 
 console.log("[cheese-tiger] script loaded")
 
@@ -42,6 +60,8 @@ type Config = {
   installedVersions: Record<string, string>
   autoCheckOnLaunch: boolean
   verboseLog: boolean
+  repo: string
+  assetName: string
 }
 
 function normalizeMethod(value: any): InputMethod {
@@ -91,6 +111,8 @@ function normalizeConfig(data: any): Config {
     installedVersions,
     autoCheckOnLaunch: data?.autoCheckOnLaunch === true,
     verboseLog: data?.verboseLog !== false,
+    repo: parseRepo(data?.repo),
+    assetName: String(data?.assetName ?? ""),
   }
 }
 
@@ -108,6 +130,8 @@ function loadConfig(): Config {
     installedVersions: {},
     autoCheckOnLaunch: false,
     verboseLog: true,
+    repo: DEFAULT_REPO,
+    assetName: "",
   }
 }
 
@@ -156,6 +180,7 @@ function MainView() {
   const [percent, setPercent] = useState(0)
   const [log, setLog] = useState("")
   const [files, setFiles] = useState<string[]>([])
+  const [backups, setBackups] = useState<BackupEntry[]>([])
 
   const activeDir =
     config.dirs.find((dir) => dir.id === config.activeId) ?? config.dirs[0]
@@ -185,6 +210,7 @@ function MainView() {
 
   function setActive(id: string) {
     updateConfig({ ...config, activeId: id })
+    void refreshBackups(config.dirs.find((dir) => dir.id === id))
   }
 
   async function resolveTarget(dir: DirEntry): Promise<string> {
@@ -215,6 +241,21 @@ function MainView() {
     } catch (error: any) {
       setFiles([])
       append(`无法读取目录：${String(error?.message ?? error)}`)
+    }
+  }
+
+  async function refreshBackups(dir?: DirEntry) {
+    const targetDir = dir ?? activeDir
+    if (!targetDir) {
+      setBackups([])
+      return
+    }
+    try {
+      const target = await resolveTarget(targetDir)
+      setBackups(await listBackups(target))
+    } catch (error: any) {
+      setBackups([])
+      append(`读取备份失败：${String(error?.message ?? error)}`)
     }
   }
 
@@ -380,12 +421,35 @@ function MainView() {
     append("Token 已保存")
   }
 
+  async function editRepo() {
+    const DialogApi: any = (globalThis as any).Dialog
+    if (!DialogApi?.prompt) return
+    const input = await DialogApi.prompt({
+      title: "方案仓库",
+      message: "填 owner/repo 或 GitHub 仓库网址，例如 viui798/viui-tiger-sentense。",
+      defaultValue: config.repo,
+      confirmLabel: "保存",
+      cancelLabel: "取消",
+    })
+    if (input == null) return
+    const repo = parseRepo(String(input))
+    updateConfig({ ...config, repo, assetName: "" })
+    setRemote(null)
+    append(`方案仓库已改为：${repo}`)
+  }
+
+  function selectAsset(asset: ReleaseAsset) {
+    updateConfig({ ...config, assetName: asset.name })
+    setRemote(remote ? { ...remote, chosen: asset } : remote)
+    append(`已选择资产：${asset.name}`)
+  }
+
   async function check() {
     if (busy) return
     setBusy(true)
     try {
-      append("检查远端版本…")
-      const release = await fetchLatest(config.token)
+      append(`检查 ${config.repo} 的远端版本…`)
+      const release = await fetchLatest(config.token, config.repo, config.assetName)
       setRemote(release)
       append(`远端最新：v${release.version}（${release.chosen.name}）`)
     } catch (error: any) {
@@ -411,6 +475,86 @@ function MainView() {
     }
   }
 
+  async function deployDir(dir: DirEntry) {
+    if (dir.inputMethod === "none") {
+      append(`[${dir.name}] 请手动部署`)
+      return
+    }
+    append(`[${dir.name}] 请求 ${methodLabel(dir.inputMethod)} 部署…`)
+    try {
+      await deployInputMethod(dir.inputMethod)
+      append(`[${dir.name}] 已请求部署`)
+    } catch (error: any) {
+      append(`[${dir.name}] ✗ 部署失败：${String(error?.message ?? error)}`)
+    }
+  }
+
+  async function prepareRemote(): Promise<ReleaseInfo> {
+    const release = await fetchLatest(config.token, config.repo, config.assetName)
+    setRemote(release)
+    append(`远端最新：v${release.version}（${release.chosen.name}）`)
+    return release
+  }
+
+  async function dryRun() {
+    if (busy) return
+    const targets = config.dirs.length > 1 ? config.dirs : activeDir ? [activeDir] : []
+    if (targets.length === 0) {
+      append("请先添加一个 Rime 用户目录。")
+      return
+    }
+    setBusy(true)
+    setPercent(0)
+    try {
+      const release = await prepareRemote()
+      const zip = await downloadAsset(release.chosen, append, (progress) => {
+        if (typeof progress.percent === "number") {
+          setPercent(Math.max(0, Math.min(1, progress.percent)))
+        }
+      })
+      for (const dir of targets) {
+        const target = await resolveTarget(dir)
+        if (!target) {
+          append(`✗ ${dir.name}：找不到目录`)
+          continue
+        }
+        append(`[${dir.name}] 预演 v${release.version} → ${target}`)
+        const plan = await planZip(zip, target)
+        append(
+          `[${dir.name}] 将更新 ${plan.updated} 个，新增 ${plan.added} 个，跳过个人数据 ${plan.skipped} 个`,
+        )
+        for (const line of plan.files.slice(0, 20)) append(`[${dir.name}]   ${line}`)
+        if (plan.files.length > 20) append(`[${dir.name}]   …其余 ${plan.files.length - 20} 个`)
+      }
+      append("预演完成（未写入任何文件）")
+    } catch (error: any) {
+      append(`✗ ${String(error?.message ?? error)}`)
+    } finally {
+      setBusy(false)
+      setPercent(0)
+    }
+  }
+
+  async function installToDirs(zip: string, version: string, targets: DirEntry[]) {
+    const installedVersions = { ...config.installedVersions }
+    for (const dir of targets) {
+      const target = await resolveTarget(dir)
+      if (!target) {
+        append(`✗ ${dir.name}：找不到目录`)
+        continue
+      }
+      append(`[${dir.name}] 安装到 ${target}`)
+      const result = await installZip(zip, target, version, append)
+      append(`[${dir.name}] 更新 ${result.copied} 个文件`)
+      append(`[${dir.name}] 备份：${result.backupRoot}`)
+      installedVersions[dir.id] = version
+      await deployDir(dir)
+    }
+    updateConfig({ ...config, installedVersions })
+    await refreshBackups()
+    append("全部完成")
+  }
+
   async function install(all: boolean) {
     if (busy) return
     const targets = all ? config.dirs : activeDir ? [activeDir] : []
@@ -422,7 +566,7 @@ function MainView() {
     setBusy(true)
     setPercent(0)
     try {
-      const release = remote ?? (await fetchLatest(config.token))
+      const release = remote ?? (await prepareRemote())
       if (!remote) setRemote(release)
       append(`准备安装 v${release.version} 到 ${targets.length} 个目录`)
       const zip = await downloadAsset(release.chosen, append, (progress) => {
@@ -430,34 +574,7 @@ function MainView() {
           setPercent(Math.max(0, Math.min(1, progress.percent)))
         }
       })
-
-      const installedVersions = { ...config.installedVersions }
-      for (const dir of targets) {
-        const target = await resolveTarget(dir)
-        if (!target) {
-          append(`✗ ${dir.name}：找不到目录`)
-          continue
-        }
-        append(`[${dir.name}] 安装到 ${target}`)
-        const result = await installZip(zip, target, release.version, append)
-        append(`[${dir.name}] 更新 ${result.copied} 个文件，跳过 ${result.skipped} 个`)
-        append(`[${dir.name}] 备份：${result.backupRoot}`)
-        installedVersions[dir.id] = release.version
-
-        if (dir.inputMethod === "none") {
-          append(`[${dir.name}] 请手动部署`)
-        } else {
-          append(`[${dir.name}] 请求 ${methodLabel(dir.inputMethod)} 部署…`)
-          try {
-            await deployInputMethod(dir.inputMethod)
-            append(`[${dir.name}] 已请求部署`)
-          } catch (error: any) {
-            append(`[${dir.name}] ✗ 部署失败：${String(error?.message ?? error)}`)
-          }
-        }
-      }
-      updateConfig({ ...config, installedVersions })
-      append("全部完成")
+      await installToDirs(zip, release.version, targets)
     } catch (error: any) {
       append(`✗ ${String(error?.message ?? error)}`)
     } finally {
@@ -466,8 +583,219 @@ function MainView() {
     }
   }
 
+  async function installLocalZip() {
+    if (busy) return
+    const dir = activeDir
+    if (!dir) {
+      append("请先添加一个 Rime 用户目录。")
+      return
+    }
+    const picker: any = (globalThis as any).DocumentPicker
+    if (typeof picker?.pickFiles !== "function") {
+      append("当前 Scripting 版本不支持选择文件，请先升级 Scripting。")
+      return
+    }
+    const DialogApi: any = (globalThis as any).Dialog
+    try {
+      const picked = await picker.pickFiles({
+        allowsMultipleSelection: false,
+        shouldShowFileExtensions: true,
+      })
+      if (!picked || !picked.length) return
+      const zipName = basename(String(picked[0]))
+      if (!zipName.toLowerCase().endsWith(".zip")) {
+        void DialogApi?.alert?.({
+          title: "只支持 zip",
+          message: "请选择方案包里以 .zip 结尾的文件。",
+          confirmLabel: "知道了",
+        })
+        return
+      }
+      const version = inferVersionFromName(zipName) || "本地包"
+      if (DialogApi?.confirm) {
+        const ok = await DialogApi.confirm({
+          title: "从本地 zip 安装",
+          message: `将 ${zipName} 安装到「${dir.name}」？覆盖前会生成快照备份。`,
+          confirmLabel: "安装",
+          cancelLabel: "取消",
+        })
+        if (!ok) return
+      }
+      setBusy(true)
+      setPercent(0)
+      append(`准备本地包 ${zipName}（版本 ${version}）`)
+      const zip = await stageLocalZip(String(picked[0]))
+      await installToDirs(zip, version, [dir])
+      append("本地包安装完成")
+    } catch (error: any) {
+      append(`✗ ${String(error?.message ?? error)}`)
+    } finally {
+      setBusy(false)
+      setPercent(0)
+    }
+  }
+
+  async function runSwitch(zip: string, label: string, version: string) {
+    const dir = activeDir
+    if (!dir) {
+      append("请先添加一个 Rime 用户目录。")
+      return
+    }
+    const target = await resolveTarget(dir)
+    append(`[${dir.name}] 换方案：${label}`)
+    const result = await switchScheme(zip, target, dir.name, version, append)
+    append(`[${dir.name}] 新方案写入 ${result.copied} 个文件`)
+    append(`[${dir.name}] 个人数据备份：${result.backupRoot}`)
+    updateConfig({
+      ...config,
+      installedVersions: { ...config.installedVersions, [dir.id]: version },
+    })
+    await deployDir(dir)
+    await refreshBackups()
+    await refreshFiles()
+    append("换方案完成")
+  }
+
+  async function switchFromLocalZip() {
+    if (busy) return
+    const dir = activeDir
+    if (!dir) {
+      append("请先添加一个 Rime 用户目录。")
+      return
+    }
+    const picker: any = (globalThis as any).DocumentPicker
+    if (typeof picker?.pickFiles !== "function") {
+      append("当前 Scripting 版本不支持选择文件，请先升级 Scripting。")
+      return
+    }
+    const DialogApi: any = (globalThis as any).Dialog
+    try {
+      const picked = await picker.pickFiles({
+        allowsMultipleSelection: false,
+        shouldShowFileExtensions: true,
+      })
+      if (!picked || !picked.length) return
+      const zipName = basename(String(picked[0]))
+      if (!zipName.toLowerCase().endsWith(".zip")) {
+        void DialogApi?.alert?.({
+          title: "只支持 zip",
+          message: "请选择方案包里以 .zip 结尾的文件。",
+          confirmLabel: "知道了",
+        })
+        return
+      }
+      if (DialogApi?.confirm) {
+        const ok = await DialogApi.confirm({
+          title: "换方案",
+          message: `会用 ${zipName} 替换「${dir.name}」的旧方案。个人数据会先备份、安装后恢复，输入法词库不受影响。`,
+          confirmLabel: "开始",
+          cancelLabel: "取消",
+        })
+        if (!ok) return
+      }
+      setBusy(true)
+      setPercent(0)
+      const version = inferVersionFromName(zipName) || "本地包"
+      const zip = await stageLocalZip(String(picked[0]))
+      await runSwitch(zip, zipName, version)
+    } catch (error: any) {
+      append(`✗ 换方案失败：${String(error?.message ?? error)}`)
+    } finally {
+      setBusy(false)
+      setPercent(0)
+    }
+  }
+
+  async function switchFromRelease() {
+    if (busy) return
+    const dir = activeDir
+    if (!dir) {
+      append("请先添加一个 Rime 用户目录。")
+      return
+    }
+    const DialogApi: any = (globalThis as any).Dialog
+    if (DialogApi?.confirm) {
+      const ok = await DialogApi.confirm({
+        title: "换方案",
+        message: `会用 ${config.repo} 的最新版本替换「${dir.name}」的旧方案。个人数据会先备份、安装后恢复。`,
+        confirmLabel: "开始",
+        cancelLabel: "取消",
+      })
+      if (!ok) return
+    }
+    setBusy(true)
+    setPercent(0)
+    try {
+      const release = await prepareRemote()
+      const zip = await downloadAsset(release.chosen, append, (progress) => {
+        if (typeof progress.percent === "number") {
+          setPercent(Math.max(0, Math.min(1, progress.percent)))
+        }
+      })
+      await runSwitch(zip, release.chosen.name, release.version)
+    } catch (error: any) {
+      append(`✗ 换方案失败：${String(error?.message ?? error)}`)
+    } finally {
+      setBusy(false)
+      setPercent(0)
+    }
+  }
+
+  async function rollback(entry: BackupEntry) {
+    if (busy) return
+    const dir = activeDir
+    if (!dir) return
+    const DialogApi: any = (globalThis as any).Dialog
+    if (DialogApi?.confirm) {
+      const ok = await DialogApi.confirm({
+        title: "回滚",
+        message: `把 ${entry.name} 快照里的 ${entry.files} 个文件写回「${dir.name}」？当前文件会被覆盖。`,
+        confirmLabel: "回滚",
+        cancelLabel: "取消",
+      })
+      if (!ok) return
+    }
+    setBusy(true)
+    try {
+      const target = await resolveTarget(dir)
+      append(`[${dir.name}] 回滚到 ${entry.name}`)
+      const count = await restoreBackup(target, entry.path, append)
+      append(`[${dir.name}] 已恢复 ${count} 个文件`)
+      await deployDir(dir)
+      await refreshBackups()
+    } catch (error: any) {
+      append(`✗ 回滚失败：${String(error?.message ?? error)}`)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function deleteBackup(entry: BackupEntry) {
+    if (busy) return
+    const dir = activeDir
+    if (!dir) return
+    const DialogApi: any = (globalThis as any).Dialog
+    if (DialogApi?.confirm) {
+      const ok = await DialogApi.confirm({
+        title: "删除备份",
+        message: `删除快照「${entry.name}」？删除后无法再回滚到这一份。`,
+        confirmLabel: "删除",
+        cancelLabel: "取消",
+      })
+      if (!ok) return
+    }
+    try {
+      await removeBackup(entry.path)
+      append(`已删除备份：${entry.name}`)
+      await refreshBackups()
+    } catch (error: any) {
+      append(`✗ 删除失败：${String(error?.message ?? error)}`)
+    }
+  }
+
   useEffect(() => {
     void refreshFiles()
+    void refreshBackups()
     if (config.autoCheckOnLaunch) void check()
   }, [])
 
@@ -493,9 +821,10 @@ function MainView() {
                   title: "使用说明",
                   message:
                     "1. 在「设置」里添加 Rime 目录并命名。\n" +
-                    "2. 点「检查更新」读取芝士虎整最新版本。\n" +
-                    "3. 点「安装当前」或「安装全部」。\n" +
-                    "4. 安装完成后按各目录的部署方式重新部署。",
+                    "2. 点「检查更新」读取方案仓库最新版本。\n" +
+                    "3. 想先确认文件时点「仅预演」，不会写盘。\n" +
+                    "4. 点「一键更新」安装到全部目录，或「安装当前」。\n" +
+                    "5. 安装 / 回滚后按各目录的部署方式重新部署。",
                   confirmLabel: "知道了",
                 })
               }}
@@ -543,6 +872,14 @@ function MainView() {
       <Section header={<Text>操作</Text>}>
         <HStack spacing={8}>
           <Button title="检查更新" action={check} disabled={busy} />
+          <Button title="仅预演" action={dryRun} disabled={busy || config.dirs.length === 0} />
+          <Button
+            title="一键更新"
+            action={() => install(true)}
+            disabled={busy || config.dirs.length === 0}
+          />
+        </HStack>
+        <HStack spacing={8}>
           <Button
             title="安装当前"
             action={() => install(false)}
@@ -553,17 +890,16 @@ function MainView() {
             action={deployActive}
             disabled={busy || !activeDir}
           />
-        </HStack>
-        {config.dirs.length > 1 ? (
           <Button
-            title="安装到全部目录"
-            action={() => install(true)}
-            disabled={busy}
+            title="本地 zip"
+            action={installLocalZip}
+            disabled={busy || !activeDir}
           />
-        ) : null}
+        </HStack>
       </Section>
 
       <Section header={<Text>远程信息</Text>}>
+        <KvRow label="仓库" value={config.repo} />
         <KvRow label="版本" value={remote ? `v${remote.version}` : "未检查"} />
         <KvRow label="资产" value={remote?.chosen.name ?? "-"} />
         <KvRow
@@ -619,11 +955,81 @@ function MainView() {
         ))}
         <Button title="添加目录" action={pickFolder} disabled={busy} />
         <Button title="手动输入路径" action={addManualPath} disabled={busy} />
-        {log ? (
+      </Section>
+
+      <Section header={<Text>更新来源</Text>}>
+        <KvRow label="仓库" value={config.repo} />
+        <Button title="修改仓库" action={editRepo} disabled={busy} />
+        <Button
+          title="恢复默认仓库"
+          action={() => {
+            updateConfig({ ...config, repo: DEFAULT_REPO, assetName: "" })
+            setRemote(null)
+            append(`方案仓库恢复为 ${DEFAULT_REPO}`)
+          }}
+          disabled={busy || config.repo === DEFAULT_REPO}
+        />
+        <KvRow label="资产" value={config.assetName || "自动选择（优先增量包）"} />
+        {remote && remote.assets.length > 1
+          ? remote.assets.map((asset) => (
+              <HStack key={asset.name}>
+                <Text font="caption">{asset.name}</Text>
+                <Spacer />
+                <Button
+                  title={config.assetName === asset.name ? "已选" : "选用"}
+                  action={() => selectAsset(asset)}
+                  disabled={busy || config.assetName === asset.name}
+                />
+              </HStack>
+            ))
+          : <Text font="caption" foregroundStyle="secondaryLabel">
+              先在主页「检查更新」，这里会列出可选的资产。
+            </Text>}
+      </Section>
+
+      <Section header={<Text>换方案</Text>}>
+        <Text font="caption" foregroundStyle="secondaryLabel">
+          先备份个人数据，再清理旧方案运行文件，安装后把个人数据补回去，最后部署。
+        </Text>
+        <Button
+          title="从本地 zip 换方案"
+          action={switchFromLocalZip}
+          disabled={busy || !activeDir}
+        />
+        <Button
+          title="从当前仓库换方案"
+          action={switchFromRelease}
+          disabled={busy || !activeDir}
+        />
+      </Section>
+
+      <Section header={<Text>备份与回滚</Text>}>
+        <KvRow
+          label="当前目录"
+          value={activeDir ? `${backups.length} 份快照` : "未选择"}
+        />
+        {backups.length === 0 ? (
           <Text font="caption" foregroundStyle="secondaryLabel">
-            {log.split("\n").slice(-4).join("\n")}
+            还没有快照。更新或从本地 zip 安装后会自动生成。
           </Text>
         ) : null}
+        {backups.map((entry) => (
+          <VStack key={entry.name} spacing={2}>
+            <Text>{entry.name}</Text>
+            <Text font="caption" foregroundStyle="secondaryLabel">
+              {`${entry.version ? `v${entry.version} · ` : ""}${entry.files} 个文件`}
+            </Text>
+            <HStack spacing={8}>
+              <Button title="回滚" action={() => rollback(entry)} disabled={busy} />
+              <Button title="删除" action={() => deleteBackup(entry)} disabled={busy} />
+            </HStack>
+          </VStack>
+        ))}
+        <Button
+          title="刷新备份列表"
+          action={() => refreshBackups()}
+          disabled={busy || !activeDir}
+        />
       </Section>
 
       <Section header={<Text>更新设置</Text>}>
@@ -641,6 +1047,7 @@ function MainView() {
             updateConfig({ ...config, verboseLog: value })
           }
         />
+        <Button title="清空日志" action={() => setLog("")} />
       </Section>
 
       <Section header={<Text>GitHub</Text>}>
@@ -654,8 +1061,9 @@ function MainView() {
       </Section>
 
       <Section header={<Text>关于</Text>}>
-        <KvRow label="脚本版本" value="1.0.0" />
-        <KvRow label="方案仓库" value="viui798/viui-tiger-sentense" />
+        <KvRow label="脚本版本" value="1.1.0" />
+        <KvRow label="方案仓库" value={config.repo} />
+        <KvRow label="快照目录" value={BACKUP_DIR} />
       </Section>
     </List>
   )

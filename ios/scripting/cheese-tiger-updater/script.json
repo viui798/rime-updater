@@ -1,7 +1,7 @@
 {
   "name": "芝士虎整更新器",
-  "version": "1.0.0",
-  "description": "在 iPhone / iPad 上下载芝士虎整增量包，并安装到仓输入法或元书的 Rime 用户目录",
+  "version": "1.1.0",
+  "description": "在 iPhone / iPad 上检查、预演、安装方案包到仓输入法或元书的 Rime 用户目录，支持备份回滚、本地 zip 与换方案",
   "author": {
     "name": "viui798",
     "homepage": "https://github.com/viui798/rime-updater"

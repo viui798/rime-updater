@@ -1,4 +1,4 @@
-// 芝士虎整 Release 读取：优先 -update.zip，没有则用完整包。
+// Release 读取：可指定任意 owner/repo 仓库；优先 -update.zip，没有则用完整包。
 import { Runtime } from "./runtime"
 
 export type ReleaseAsset = {
@@ -16,10 +16,39 @@ export type ReleaseInfo = {
   body: string
 }
 
-const OWNER = "viui798"
-const REPO = "viui-tiger-sentense"
+export const DEFAULT_REPO = "viui798/viui-tiger-sentense"
 
-export async function fetchLatest(token?: string): Promise<ReleaseInfo> {
+/** 接受 owner/repo 或 GitHub 网址，返回 owner/repo */
+export function parseRepo(input?: string): string {
+  const raw = String(input ?? "").trim()
+  if (!raw) return DEFAULT_REPO
+  const fromUrl = raw.match(/github\.com\/([^/]+)\/([^/?#]+)/i)
+  if (fromUrl) return `${fromUrl[1]}/${fromUrl[2].replace(/\.git$/, "")}`
+  const plain = raw.match(/^([\w.-]+)\/([\w.-]+)$/)
+  if (plain) return `${plain[1]}/${plain[2]}`
+  return DEFAULT_REPO
+}
+
+function pickAsset(assets: ReleaseAsset[], preferredName?: string): ReleaseAsset | null {
+  const preferred = String(preferredName ?? "").trim()
+  if (preferred) {
+    const hit = assets.find((asset) => asset.name === preferred)
+    if (hit) return hit
+  }
+  const delta = assets.find((asset) => asset.name.endsWith("-update.zip"))
+  const full = assets.find(
+    (asset) =>
+      asset.name.toLowerCase().endsWith(".zip") &&
+      !asset.name.endsWith("-update.zip"),
+  )
+  return delta ?? full ?? null
+}
+
+export async function fetchLatest(
+  token?: string,
+  repo?: string,
+  preferredName?: string,
+): Promise<ReleaseInfo> {
   const headers: Record<string, string> = {
     "User-Agent": "cheese-tiger-updater",
     Accept: "application/vnd.github+json",
@@ -28,8 +57,9 @@ export async function fetchLatest(token?: string): Promise<ReleaseInfo> {
     headers.Authorization = `Bearer ${token.trim()}`
   }
 
+  const full = parseRepo(repo)
   const res = await Runtime.fetch(
-    `https://api.github.com/repos/${OWNER}/${REPO}/releases/latest`,
+    `https://api.github.com/repos/${full}/releases/latest`,
     { headers },
   )
   if (!res.ok) {
@@ -38,7 +68,7 @@ export async function fetchLatest(token?: string): Promise<ReleaseInfo> {
       const json = await res.json()
       if (json?.message) detail = String(json.message)
     } catch {}
-    throw new Error(`无法访问 GitHub Release：${detail}`)
+    throw new Error(`无法访问 GitHub Release（${full}）：${detail}`)
   }
 
   const json = await res.json()
@@ -52,13 +82,7 @@ export async function fetchLatest(token?: string): Promise<ReleaseInfo> {
       size: Number(asset.size ?? 0),
     }))
 
-  const delta = assets.find((asset) => asset.name.endsWith("-update.zip"))
-  const full = assets.find(
-    (asset) =>
-      asset.name.toLowerCase().endsWith(".zip") &&
-      !asset.name.endsWith("-update.zip"),
-  )
-  const chosen = delta ?? full
+  const chosen = pickAsset(assets, preferredName)
   if (!chosen) throw new Error("Release 里没有可用的 zip 资产")
   return {
     version,

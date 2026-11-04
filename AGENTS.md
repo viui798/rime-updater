@@ -106,7 +106,8 @@
   提示用户在 Trime 里点刷新；手动添加目录在 Android 上隐藏。模拟器（API 35）已跑通
   检查 / 预演 / 正式更新，**未在 Android 实机验证**
 - iOS 平台目录已生成，更新逻辑尚未接入；另提供 `ios/scripting/` 下的
-  Scripting App 轻量更新器（无需开发者账号，待真机验证）
+  Scripting App 更新器（无需开发者账号）：已支持检查 / 预演 / 更新 / 本地 zip /
+  备份回滚 / 换方案 / 任意 GitHub 仓库，**未真机验证**
 
 ## 3. 文件说明
 
@@ -362,6 +363,19 @@ curl -s http://127.0.0.1:8766/api/state
    覆盖前备份到 `.cheese-tiger-backup`，安装后用 `hamster://` / `hamster3://` 请求部署；
    文件与下载工具改编自 `BlackCCCat/Scripting-Scripts`（MIT，README 已注明）。
    esbuild 语法检查通过；**未在 iOS 真机 / Scripting App 验证**；不执行 DELTA 删除列表。
+28. iOS 全功能对齐（2026-11-04，脚本 1.1.0）：
+   - 仅预演：`planZip` 解压到临时目录逐个比对，输出「将更新 / 新增 / 跳过个人数据」
+     数量与前 20 个文件名，不写盘；
+   - 任意 GitHub 方案：`fetchLatest(token, repo, assetName)`，设置页可改 `owner/repo`
+     或网址，检查后列出 zip 资产可「选用」；
+   - 快照升级：`installZip` 写 `manifest.json`（版本 / 覆盖 / 新增），回滚时先删
+     快照里「新增」的文件再写回备份，与桌面端语义一致；设置页可回滚 / 删除 / 刷新；
+   - 本地 zip：`DocumentPicker.pickFiles` + `stageLocalZip`（先拷到临时目录），
+     文件名推断版本；
+   - 换方案向导 `utils/switch_scheme.ts`：收集个人数据 → 备份到
+     `<Rime>/.cheese-tiger-backup/switch-<时间戳>/` → 清理 `lua/opencc/models/dicts` 等
+     与根目录非个人 yaml → 安装 → 只补回缺失的个人数据 → 部署；支持本地 zip 与仓库包；
+   - 新增「清空日志」；esbuild 语法检查通过；**未真机验证**
 
 ## 7. 下一步（按优先级）
 
@@ -376,8 +390,9 @@ curl -s http://127.0.0.1:8766/api/state
    Trime 实际目录（可能被用户改过）以及更新后在 Trime 里刷新部署的体验。
 5. **iOS Scripting 脚本验证**：在 iPhone / iPad 的 Scripting App 里导入
    `ios/scripting/cheese-tiger-updater`，用仓输入法（`文件/Hamster/Rime`）与元书实际跑
-   检查 / 安装 / 部署；若 Scripting API 有差异，按真机报错调整 `utils/`。
-   也可以用仓 / 元书自带的 zip 导入，但增量包带 `update/` 前缀，需先去掉（脚本已处理）。
+   检查 / 预演 / 安装 / 回滚 / 本地 zip / 换方案；若 Scripting API 有差异，按真机报错调整
+   `utils/`。**待补**：云同步（WebDAV）与同步库管理，需先确认 Scripting `fetch` 能否
+   用 `Data` 上传二进制（`.userdb`），确认后复用桌面端 `CheeseTigerSync/<kind>/files/` 结构。
 6. **界面增强**：显示落后版本数；失败自动重试；把 `backup_userdata.py` 的备份/恢复
    用 Dart 重做并接进界面。
 7. **体验**：Dart 桌面端不支持 socks5，只支持 HTTP 代理；可引入第三方包补 socks5。
@@ -401,7 +416,8 @@ curl -s http://127.0.0.1:8766/api/state
   启动不联网与 10 分钟检查缓存、GitHub Actions 三平台构建、Android 端（权限、Trime 目录、
   文件选择、窄屏 UI、Actions android job）
 - **本会话新增（待推送）**：Windows 实机（小狼毫 / 虎韵分别识别、`Tigrime.Deployer.exe`
-  部署改异步、设备「⋮」删除 + `hidden_dirs`）；iOS Scripting 轻量更新器（未真机验证）
+  部署改异步、设备「⋮」删除 + `hidden_dirs`）；iOS Scripting 更新器（三页 App 布局、
+  多目录、预演、本地 zip、备份回滚、换方案、任意仓库，脚本 1.1.0，未真机验证）
 - **已验证**：`dart analyze` 无问题；`flutter test` 33 项通过（Windows 上个别临时目录
   清理偶发 `errno 32`，重跑即过）；macOS 实跑（三前端识别、预演 8 文件）；Android 模拟器
   （API 35）检查 / 预演 / 正式更新 + 快照；`flutter build windows --release` 成功并安装到
