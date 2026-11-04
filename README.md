@@ -7,6 +7,20 @@
 进度、设计决策与后续计划见 [AGENTS.md](AGENTS.md)；界面配色、字体、间距与组件规范见
 [DESIGN.md](DESIGN.md)。
 
+## Windows 下载与系统要求
+
+`dist/` 下产出两种形式（`dist/` 不提交）：
+
+| 形式 | 文件 | 说明 |
+|---|---|---|
+| 安装版 | `RimeUpdater-v1.0.0-Setup.exe` | Inno Setup 安装包，用户级安装（无需管理员），带开始菜单与卸载项 |
+| 免安装版 | `RimeUpdater-v1.0.0-portable-x64.zip` | 解压即用，删除文件夹即卸载 |
+
+系统要求：Windows 10 / 11 **64 位（x64）**。
+
+- Windows on ARM 可以直接运行 x64 版（系统自带 x64 模拟），无需单独架构包；
+- Flutter 3.47 的 Windows 桌面端只提供 x64 引擎，无法构建 arm64 原生包，也不支持 32 位 Windows。
+
 ## 它解决什么
 
 方案包每次更新，都要在每台设备上手动解压、覆盖、重新部署；设备一多就容易漏文件，

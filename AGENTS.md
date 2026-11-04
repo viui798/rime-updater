@@ -456,6 +456,23 @@ curl -s http://127.0.0.1:8766/api/state
    读写迁到新文件 `utils/config.ts`。组件写法均经官方文档核对（NavigationLink
    destination、Menu、Picker、ProgressView、buttonStyle）。esbuild bundle 检查通过；
    **未真机验证**（若推入的子页面状态不随操作刷新，回退方案是把对应操作按钮挪回主页）。
+36. Windows 对齐 v3（2026-11-05）：v3 是共享 Flutter 代码，Windows 直接获得静序视觉；
+   平台层补齐：窗口初始尺寸 980×760（与 macOS 一致）、`WM_GETMINMAXINFO` 最小 360×500
+   （按 DPI 缩放）；等宽字体在 Windows 上原本回退成非等宽，给所有 `Menlo` 增加
+   `fontFamilyFallback: ['Consolas', 'monospace', 'Courier New']`（macOS / Android 同时受益）；
+   `dart analyze` 无问题、`flutter test` 37 项通过；`flutter build windows --release` 成功并
+   覆盖安装，实机截图验证 980×760 与 420×800 布局
+37. 卸载残留修复（2026-11-05）：安装包卸载后残留空文件夹，排查到 `WeaselServer.exe`
+   占用安装目录——更新器部署后重启小狼毫时，服务继承了更新器的当前工作目录。
+   `_deployWeasel` 现在以 Weasel 安装目录作为 `workingDirectory` 启动服务；
+   安装包补 `[UninstallDelete] {app}\data` 与 `usPostUninstall` 的 `RemoveDir`。
+   实测「安装 → 启动 → 卸载」后目录与注册表均清空，重装后再启动正常
+38. 发布物与架构（2026-11-05）：`dist/` 产出 `RimeUpdater-v1.0.0-Setup.exe`（Inno，用户级
+   安装）与 `RimeUpdater-v1.0.0-portable-x64.zip`（免安装，含 `使用说明.txt`）；两者都由
+   `app/windows/installer.iss` 与 `app/build/windows/x64/runner/Release` 生成。
+   Flutter 3.47 的 Windows 桌面端只有 x64 引擎产物（`bin/cache/artifacts/engine` 里只有
+   `windows-x64*`，`build windows` 也没有 `--target-platform`），因此无法产出 arm64 原生包，
+   也不支持 32 位；Windows on ARM 直接用 x64 包（系统自带 x64 模拟）。
 
 ## 7. 下一步（按优先级）
 

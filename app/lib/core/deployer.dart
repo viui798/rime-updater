@@ -150,7 +150,14 @@ Future<void> _deployWeasel(void Function(String) log) async {
   } else {
     log('  提示：未找到 WeaselDeployer.exe，请手动重新部署');
   }
-  await Process.start(server, const [], mode: ProcessStartMode.detached);
+  // 重新拉起服务时必须指定工作目录，否则会继承更新器的目录，
+  // 导致卸载时该目录一直被 WeaselServer 占用、删不掉。
+  await Process.start(
+    server,
+    const [],
+    workingDirectory: p.dirname(server),
+    mode: ProcessStartMode.detached,
+  );
 }
 
 Future<void> _deployTigrime(void Function(String) log) async {

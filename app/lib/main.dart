@@ -1179,7 +1179,7 @@ class _HomePageState extends State<HomePage> {
       child: Text(
         'R',
         style: TextStyle(
-          fontFamily: 'Menlo',
+          fontFamily: 'Menlo', fontFamilyFallback: ['Consolas', 'monospace', 'Courier New'],
           color: theme.colorScheme.onPrimary,
           fontSize: size * 0.5,
           fontWeight: FontWeight.w700,
@@ -1242,7 +1242,7 @@ class _HomePageState extends State<HomePage> {
         Text(
           value,
           style: TextStyle(
-            fontFamily: 'Menlo',
+            fontFamily: 'Menlo', fontFamilyFallback: ['Consolas', 'monospace', 'Courier New'],
             fontSize: 18,
             fontWeight: FontWeight.w700,
             height: 1.0,
@@ -1293,7 +1293,10 @@ class _HomePageState extends State<HomePage> {
                         fontWeight: FontWeight.w600,
                         letterSpacing: -.8,
                         color: theme.colorScheme.onSurface,
-                        fontFamily: checked ? 'Menlo' : null)),
+                        fontFamily: checked ? 'Menlo' : null,
+                        fontFamilyFallback: checked
+                            ? const ['Consolas', 'monospace', 'Courier New']
+                            : null)),
                 const SizedBox(height: 8),
                 Text(checked ? _remoteAsset : '先检查版本，再预演文件变更，安心更新。',
                     maxLines: 2,
@@ -1341,7 +1344,7 @@ class _HomePageState extends State<HomePage> {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: theme.textTheme.bodySmall
-                      ?.copyWith(fontSize: 10.5, fontFamily: 'Menlo'))),
+                      ?.copyWith(fontSize: 10.5, fontFamily: 'Menlo', fontFamilyFallback: ['Consolas', 'monospace', 'Courier New']))),
           const SizedBox(width: 8),
           Flexible(
               child: Text(_status,
@@ -1511,7 +1514,7 @@ class _HomePageState extends State<HomePage> {
                               _buildStatusChip(theme, current),
                               Text(current.isEmpty ? '版本未知' : 'v$current',
                                   style: theme.textTheme.bodySmall?.copyWith(
-                                      fontFamily: 'Menlo', fontSize: 10.5)),
+                                      fontFamily: 'Menlo', fontFamilyFallback: ['Consolas', 'monospace', 'Courier New'], fontSize: 10.5)),
                             ]),
                         const SizedBox(height: 4),
                         Text(
@@ -1519,7 +1522,7 @@ class _HomePageState extends State<HomePage> {
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
-                            fontFamily: 'Menlo',
+                            fontFamily: 'Menlo', fontFamilyFallback: ['Consolas', 'monospace', 'Courier New'],
                             fontSize: 10.5,
                             color: theme.colorScheme.onSurfaceVariant,
                           ),
@@ -1700,7 +1703,7 @@ class _HomePageState extends State<HomePage> {
                 Text(
                   _log.isEmpty ? 'IDLE' : '${_log.length} LINES',
                   style: const TextStyle(
-                    fontFamily: 'Menlo',
+                    fontFamily: 'Menlo', fontFamilyFallback: ['Consolas', 'monospace', 'Courier New'],
                     fontSize: 10,
                     letterSpacing: .6,
                     color: AppColors.consoleMuted,
@@ -1734,7 +1737,7 @@ class _HomePageState extends State<HomePage> {
                       child: SelectableText.rich(
                         TextSpan(children: _logSpans()),
                         style: const TextStyle(
-                          fontFamily: 'Menlo',
+                          fontFamily: 'Menlo', fontFamilyFallback: ['Consolas', 'monospace', 'Courier New'],
                           fontSize: 12,
                           height: 1.6,
                           color: AppColors.consoleText,
@@ -1786,7 +1789,7 @@ class _HomePageState extends State<HomePage> {
                       Text(
                         '$from → $to',
                         style: TextStyle(
-                          fontFamily: 'Menlo',
+                          fontFamily: 'Menlo', fontFamilyFallback: ['Consolas', 'monospace', 'Courier New'],
                           fontSize: 10.5,
                           color: theme.colorScheme.onSurfaceVariant,
                         ),

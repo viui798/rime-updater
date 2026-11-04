@@ -409,7 +409,7 @@ class _SyncDialogState extends State<SyncDialog> {
                         : group.label,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontFamily: 'Menlo', fontSize: 11),
+                    style: const TextStyle(fontFamily: 'Menlo', fontFamilyFallback: ['Consolas', 'monospace', 'Courier New'], fontSize: 11),
                   ),
                   subtitle: Text(
                     '${group.byName.isEmpty ? '未知设备' : group.byName}'
@@ -580,7 +580,7 @@ class _SyncDialogState extends State<SyncDialog> {
                     child: Text(
                       _log.join('\n'),
                       style: TextStyle(
-                        fontFamily: 'Menlo',
+                        fontFamily: 'Menlo', fontFamilyFallback: ['Consolas', 'monospace', 'Courier New'],
                         fontSize: 11,
                         height: 1.6,
                         color: _error
