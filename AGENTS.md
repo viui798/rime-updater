@@ -30,7 +30,10 @@
 
 ## 1. 项目是什么
 
-芝士虎整（虎码 Rime 整合包）的**多设备一键更新器**，独立仓库维护：
+**通用 Rime 方案更新器**：默认对接芝士虎整（虎码 Rime 整合包）仓库，也支持在
+「GitHub 方案」里填任意方案仓库，或从本地 zip 安装。品牌已统一为「Rime 更新器 /
+RIME UPDATER」，界面标题、窗口标题、Android 应用名都不再出现具体方案名。
+独立仓库维护：
 
 - 本仓库：<https://github.com/viui798/rime-updater>（公开，GPL-3.0）
 - 方案仓库：<https://github.com/viui798/viui-tiger-sentense>（公开，GPL-3.0）
@@ -124,6 +127,7 @@
 | `app/lib/core/deployer.dart` | 探测小狼毫 / 虎韵安装路径，按前端执行部署（异步，避免界面卡住） |
 | `app/lib/core/webdav_client.dart` | 极简 WebDAV 客户端：MKCOL / PUT / GET / DELETE + Basic Auth（路径逐段编码） |
 | `app/lib/core/sync_service.dart` | 云同步：同步库清单、文件树、上传/删除/下载、在线编辑 |
+| `app/lib/ui/app_theme.dart` | 设计 token 与全局 ThemeData（暖纸 + 虎琥珀，见根目录 `DESIGN.md`） |
 | `app/lib/ui/sync_dialog.dart` | 云同步弹窗：WebDAV 配置、同步库文件管理、上传 / 下载 |
 | `app/lib/ui/sync_library_dialog.dart` | 文件夹式同步库管理器：浏览、上传、在线编辑、删除 |
 | `app/lib/ui/local_zip_dialog.dart` / `remote_scheme_dialog.dart` / `switch_scheme_dialog.dart` / `settings_dialog.dart` | 四个入口弹窗 |
@@ -140,6 +144,7 @@
 | `web/` | Python 版界面资源，随服务一起提供 |
 | `build_app.py` | 生成 Python 版 macOS `.app` 与 Windows 启动器 |
 | `README.md` | 面向使用者的说明 |
+| `DESIGN.md` | 设计基准：颜色 / 字体 / 间距 / 圆角 / 组件 / 响应式，改界面前必读 |
 | `LICENSE` | GPL-3.0，与方案包一致 |
 | `dist/` | 打包产物，已在 `.gitignore`，不要提交 |
 
@@ -313,7 +318,7 @@ curl -s http://127.0.0.1:8766/api/state
 17. 手动添加目录：设备区右上角「+」调用系统目录选择框，目录写进设置 `custom_dirs`，
     下次启动仍然生效；不符合 Rime 特征时先弹确认。
 18. 可拖动布局：设备 / 日志 / 备份三块之间加分隔条，拖动调整高度（日志区保持最小 120），
-    双击分隔条恢复默认值；测试覆盖拖动不报错。
+    双击分隔条恢复默认值；测试覆盖拖动不报错。（UI v2 已移除该交互，见第 28 条）
 19. 体验补充：手动设备可改名（`custom_names`）；检查日志标注「（最新）/（可更新）」；
     内容与包内一致的文件直接跳过，不再重复写盘与生成快照；备份区增加「清理备份」。
 20. 任意 GitHub 方案：主界面「GitHub 方案」填入 owner/repo 或仓库网址，读取最近 Release
@@ -387,6 +392,20 @@ curl -s http://127.0.0.1:8766/api/state
      密码存 Keychain；
    - esbuild 语法检查通过；**未真机验证**（重点：坚果云 MKCOL/PUT 中文路径、
      `.userdb` 二进制上传、下载覆盖前备份）
+30. UI 视觉系统（2026-11-04）：参考 awesome-design-md 的 DESIGN.md 范式新增根目录
+   `DESIGN.md`（暖纸画布 + 虎琥珀单强调色、发丝线卡片、pill 主按钮、eyebrow 小节标签、
+   等宽日志），落地为 `app/lib/ui/app_theme.dart` 的全局 ThemeData（亮 / 暗两套）；
+   重做顶栏、远端信息条、设备行、日志面板、备份行（随后被 31 的 v2 取代）
+31. 品牌与 UI v2「冷霜」（2026-11-04）：脱离芝士虎整品牌，改名「Rime 更新器 /
+   RIME UPDATER」，窗口标题与 Android 应用名同步；新图标为几何 R + 更新环（冰蓝 × 墨黑），
+   由 `icon_master.html` 渲染母版后导出 Windows `.ico`（16–256，PNG 条目）、Android
+   mipmap（48/72/96/144/192）、macOS AppIcon（16–1024，20% 留白）；
+   `DESIGN.md` 重写为 v2（冷霜 token、深色控制台、眉标英文大写）；
+   桌面改为「顶栏 + 远端版本卡（大号版本 + 设备/可更新/备份统计 + 进度 +
+   TOOLS 工具条：云同步/同步库/GitHub 方案/换方案/本地 zip）+ 左侧设备/备份、
+   右侧深色控制台」，移除拖动分隔条；手机改为单页滚动并整行主按钮；设备行改自绘勾选框；
+   `dart analyze` 无问题、`flutter test` 33 项通过；Windows release 构建成功，
+   实机截图验证 1000×760 与 420×800 两套布局
 
 ## 7. 下一步（按优先级）
 
@@ -427,13 +446,15 @@ curl -s http://127.0.0.1:8766/api/state
   启动不联网与 10 分钟检查缓存、GitHub Actions 三平台构建、Android 端（权限、Trime 目录、
   文件选择、窄屏 UI、Actions android job）
 - **本会话新增（待推送）**：Windows 实机（小狼毫 / 虎韵分别识别、`Tigrime.Deployer.exe`
-  部署改异步、设备「⋮」删除 + `hidden_dirs`）；iOS Scripting 更新器（三页 App 布局、
-  多目录、预演、本地 zip、备份回滚、换方案、任意仓库，脚本 1.1.0，未真机验证）
+  部署改异步、设备「⋮」删除 + `hidden_dirs`）；品牌与 UI v2「冷霜」（改名 Rime 更新器、
+  新图标、`DESIGN.md`、桌面双栏 + 深色控制台 + TOOLS 工具条、手机单页）；
+  iOS Scripting 更新器（预演、本地 zip、备份回滚、换方案、WebDAV 云同步，脚本 1.2.0，
+  未真机验证）
 - **已验证**：`dart analyze` 无问题；`flutter test` 33 项通过（Windows 上个别临时目录
   清理偶发 `errno 32`，重跑即过）；macOS 实跑（三前端识别、预演 8 文件）；Android 模拟器
   （API 35）检查 / 预演 / 正式更新 + 快照；`flutter build windows --release` 成功并安装到
   `%LOCALAPPDATA%\Programs\RimeUpdater`；Windows 界面「一键更新」实跑两设备 0.3.1/0.3.2 →
-  v0.3.23（快照 + 部署成功）
+  v0.3.23（快照 + 部署成功）；桌面 / 手机两套布局截图验证
 - **未验证（优先做）**：Windows 界面回滚；Android 真机 + Trime 实际部署；iOS Scripting
   真机；真实 WebDAV 账号（坚果云 / Nextcloud，注意 301/409）
 - **不要改的约定**：启动不自动请求 GitHub；更新覆盖前必须有快照 / 备份；

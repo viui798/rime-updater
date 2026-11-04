@@ -8,10 +8,24 @@ import 'package:rime_updater/core/local_package.dart';
 import 'package:rime_updater/core/rime_profile.dart';
 import 'package:rime_updater/core/zip_installer.dart';
 
+void cleanupDir(Directory dir) {
+  addTearDown(() {
+    // Windows 上 zip 读取句柄可能晚于断言释放，删除重试几次避免误报。
+    for (var attempt = 0; attempt < 6; attempt++) {
+      try {
+        if (dir.existsSync()) dir.deleteSync(recursive: true);
+        return;
+      } on FileSystemException {
+        sleep(const Duration(milliseconds: 100));
+      }
+    }
+  });
+}
+
 void main() {
   test('应用增量包、跳过用户数据、快照与回滚', () {
     final dir = Directory.systemTemp.createTempSync('rime-install-');
-    addTearDown(() => dir.deleteSync(recursive: true));
+    cleanupDir(dir);
 
     File(p.join(dir.path, 'lua/db.lua'))
       ..createSync(recursive: true)
@@ -69,7 +83,7 @@ void main() {
 
   test('full_required 的增量包会被识别', () {
     final dir = Directory.systemTemp.createTempSync('rime-full-');
-    addTearDown(() => dir.deleteSync(recursive: true));
+    cleanupDir(dir);
 
     final archive = Archive();
     final bytes = utf8.encode(jsonEncode({'full_required': true}));
@@ -82,7 +96,7 @@ void main() {
 
   test('从包内 DELTA.json 读取版本', () {
     final dir = Directory.systemTemp.createTempSync('rime-version-zip-');
-    addTearDown(() => dir.deleteSync(recursive: true));
+    cleanupDir(dir);
 
     final archive = Archive();
     final bytes = utf8.encode(jsonEncode({'to': '0.3.24'}));
@@ -96,7 +110,7 @@ void main() {
 
   test('能判断压缩包是否像 Rime 方案', () {
     final dir = Directory.systemTemp.createTempSync('rime-looks-');
-    addTearDown(() => dir.deleteSync(recursive: true));
+    cleanupDir(dir);
 
     final archive = Archive();
     final yaml = utf8.encode('schema');
@@ -120,7 +134,7 @@ void main() {
 
   test('扁平 zip 直接安装到根目录', () {
     final dir = Directory.systemTemp.createTempSync('rime-flat-');
-    addTearDown(() => dir.deleteSync(recursive: true));
+    cleanupDir(dir);
 
     final archive = Archive();
     void add(String name, String content) {
@@ -152,7 +166,7 @@ void main() {
 
   test('内容相同的文件不会重复写入，也不会生成快照', () {
     final dir = Directory.systemTemp.createTempSync('rime-same-');
-    addTearDown(() => dir.deleteSync(recursive: true));
+    cleanupDir(dir);
 
     File(p.join(dir.path, 'lua/db.lua'))
       ..createSync(recursive: true)
@@ -185,7 +199,7 @@ void main() {
 
   test('带一层方案目录的 zip 会剥掉目录前缀', () {
     final dir = Directory.systemTemp.createTempSync('rime-wrapped-');
-    addTearDown(() => dir.deleteSync(recursive: true));
+    cleanupDir(dir);
 
     final archive = Archive();
     void add(String name, String content) {

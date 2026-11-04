@@ -16,7 +16,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('芝士虎整 · 更新器'), findsOneWidget);
+    expect(find.text('Rime 更新器'), findsOneWidget);
     expect(find.text('检查更新'), findsOneWidget);
     expect(find.text('仅预演'), findsOneWidget);
     expect(find.text('一键更新'), findsOneWidget);
@@ -25,15 +25,8 @@ void main() {
     expect(find.textContaining('等待操作'), findsOneWidget);
     expect(find.text('备份与回滚'), findsOneWidget);
     expect(find.byTooltip('添加 Rime 目录'), findsOneWidget);
-    expect(find.byKey(const ValueKey('device-splitter')), findsOneWidget);
-    expect(find.byKey(const ValueKey('backup-splitter')), findsOneWidget);
-
-    // 拖动分隔条不应报错
-    await tester.drag(
-      find.byKey(const ValueKey('device-splitter')),
-      const Offset(0, 40),
-    );
-    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.text('DEVICES'), findsOneWidget);
+    expect(find.text('CONSOLE'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 

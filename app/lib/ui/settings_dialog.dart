@@ -100,7 +100,7 @@ class _SettingsDialogState extends State<SettingsDialog> {
                     decoration: const InputDecoration(
                       labelText: '方案仓库',
                       hintText: 'viui798/viui-tiger-sentense',
-                      helperText: '从哪个 GitHub 仓库下载方案包，默认芝士虎整官方仓库',
+                      helperText: '默认是芝士虎整方案仓库，可改成任意 Rime 方案仓库',
                     ),
                   ),
                   const SizedBox(height: 14),

@@ -14,6 +14,7 @@ import 'core/scheme_switcher.dart';
 import 'core/settings_store.dart';
 import 'core/zip_installer.dart';
 import 'models.dart';
+import 'ui/app_theme.dart';
 import 'ui/local_zip_dialog.dart';
 import 'ui/remote_scheme_dialog.dart';
 import 'ui/settings_dialog.dart';
@@ -30,21 +31,11 @@ class RimeUpdaterApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const seed = Color(0xFFB45309);
     return MaterialApp(
-      title: '芝士虎整 · 更新器',
+      title: 'Rime 更新器',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: seed),
-        useMaterial3: true,
-      ),
-      darkTheme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: seed,
-          brightness: Brightness.dark,
-        ),
-        useMaterial3: true,
-      ),
+      theme: buildAppTheme(Brightness.light),
+      darkTheme: buildAppTheme(Brightness.dark),
       home: const HomePage(),
     );
   }
@@ -77,8 +68,6 @@ class _HomePageState extends State<HomePage> {
 
   bool _busy = false;
   double _progress = 0;
-  double _deviceHeight = 210;
-  double _backupHeight = 130;
   String _status = '就绪';
   bool _statusError = false;
 
@@ -895,24 +884,13 @@ class _HomePageState extends State<HomePage> {
       body: SafeArea(
         child: LayoutBuilder(
           builder: (context, constraints) {
-            final compact = constraints.maxWidth < 760;
-            final padding = compact ? 12.0 : 20.0;
+            final compact = constraints.maxWidth < 900;
+            final padding = compact ? 16.0 : 24.0;
             return Padding(
-              padding: EdgeInsets.fromLTRB(padding, 12, padding, 12),
+              padding: EdgeInsets.fromLTRB(padding, 16, padding, 16),
               child: compact
                   ? _buildCompactBody(theme)
-                  : Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        _buildHeader(theme),
-                        const SizedBox(height: 12),
-                        _buildRemoteLine(theme),
-                        const SizedBox(height: 4),
-                        _buildProgress(theme),
-                        const SizedBox(height: 8),
-                        Expanded(child: _buildResizableBody(theme)),
-                      ],
-                    ),
+                  : _buildDesktopBody(theme),
             );
           },
         ),
@@ -920,25 +898,55 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  /// 手机窄屏：三块区域改为一张可滚动的页面，避免固定高度留下大片空白。
-  Widget _buildCompactBody(ThemeData theme) {
-    final deviceHeight = math.min(300.0, 58.0 * _profiles.length + 46.0);
-    final backupCount =
-        _backups.values.fold<int>(0, (sum, list) => sum + list.length);
-    final backupHeight =
-        backupCount == 0 ? 120.0 : math.min(220.0, 60.0 + 56.0 * backupCount);
+  /// 桌面：顶部状态区 + 左侧「设备 / 备份」、右侧深色控制台。
+  Widget _buildDesktopBody(ThemeData theme) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _buildCompactHeader(theme),
-        const SizedBox(height: 10),
-        _buildStatusPill(theme),
-        const SizedBox(height: 10),
+        _buildHeader(theme),
+        const SizedBox(height: 16),
+        _buildHero(theme),
+        const SizedBox(height: 16),
+        Expanded(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Expanded(
+                flex: 3,
+                child: Column(
+                  children: [
+                    Expanded(flex: 5, child: _buildDevices(theme)),
+                    const SizedBox(height: 14),
+                    Expanded(flex: 4, child: _buildBackups(theme)),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(flex: 2, child: _buildLog(theme)),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// 手机窄屏：单页滚动，状态卡 → 主操作 → 设备 → 控制台 → 备份。
+  Widget _buildCompactBody(ThemeData theme) {
+    final deviceHeight = math.min(320.0, 74.0 * _profiles.length + 62.0);
+    final backupCount =
+        _backups.values.fold<int>(0, (sum, list) => sum + list.length);
+    final backupHeight =
+        backupCount == 0 ? 124.0 : math.min(240.0, 64.0 + 62.0 * backupCount);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _buildHeader(theme, compact: true),
+        const SizedBox(height: 12),
+        _buildHero(theme, compact: true),
+        const SizedBox(height: 12),
         _buildMainButtonRow(),
-        const SizedBox(height: 4),
+        const SizedBox(height: 2),
         _buildShortcutRow(theme),
-        const SizedBox(height: 4),
-        _buildProgress(theme, compact: true),
         const SizedBox(height: 8),
         Expanded(
           child: SingleChildScrollView(
@@ -946,12 +954,12 @@ class _HomePageState extends State<HomePage> {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 SizedBox(
-                  height: math.max(96, deviceHeight),
+                  height: math.max(110, deviceHeight),
                   child: _buildDevices(theme),
                 ),
-                const SizedBox(height: 10),
+                const SizedBox(height: 12),
                 SizedBox(height: 220, child: _buildLog(theme)),
-                const SizedBox(height: 10),
+                const SizedBox(height: 12),
                 SizedBox(
                   height: backupHeight,
                   child: _buildBackups(theme),
@@ -965,94 +973,9 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  Widget _buildCompactHeader(ThemeData theme) {
-    return Row(
-      children: [
-        _buildLogo(theme),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                '芝士虎整 · 更新器',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              Text(
-                '虎码 Rime 整合包 · 多设备更新',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
-                ),
-              ),
-            ],
-          ),
-        ),
-        IconButton(
-          tooltip: '设置',
-          onPressed: _busy ? null : _openSettings,
-          icon: const Icon(Icons.settings_outlined),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildStatusPill(ThemeData theme) {
-    final checked = _remoteVersion.isNotEmpty;
-    final outdated = checked &&
-        _profiles.any((profile) {
-          final current = rime.readLocalVersion(profile.path);
-          return current.isNotEmpty && current != _remoteVersion;
-        });
-    final color = !checked
-        ? theme.colorScheme.onSurfaceVariant
-        : (outdated ? theme.colorScheme.primary : const Color(0xFF15803D));
-    final text = checked
-        ? '远端最新：v$_remoteVersion · ${_remoteDelta ? '增量包' : '完整包'}'
-        : '远端最新：未检查';
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: Row(
-        children: [
-          Icon(
-            checked ? Icons.cloud_done_outlined : Icons.cloud_off_outlined,
-            size: 16,
-            color: color,
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              text,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: theme.textTheme.bodySmall?.copyWith(color: color),
-            ),
-          ),
-          if (checked)
-            Text(
-              outdated ? '可更新' : '已最新',
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: color,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-
   Widget _buildMainButtonRow() {
     final style = ButtonStyle(
-      minimumSize: WidgetStateProperty.all(const Size.fromHeight(42)),
+      minimumSize: WidgetStateProperty.all(const Size.fromHeight(44)),
     );
     return Row(
       children: [
@@ -1102,7 +1025,21 @@ class _HomePageState extends State<HomePage> {
         ),
         PopupMenuButton<String>(
           tooltip: '更多功能',
-          icon: const Icon(Icons.more_horiz),
+          padding: EdgeInsets.zero,
+          child: Container(
+            width: 36,
+            height: 36,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              border: Border.all(color: theme.colorScheme.outlineVariant),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(
+              Icons.more_vert,
+              size: 18,
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
           onSelected: (value) {
             switch (value) {
               case 'github':
@@ -1153,199 +1090,306 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  Widget _buildResizableBody(ThemeData theme) {
-    const handleHeight = 12.0;
-    const minDevice = 110.0;
-    const minBackup = 80.0;
-    const minLog = 120.0;
-
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final total = constraints.maxHeight;
-        final deviceMax =
-            math.max(minDevice, total - _backupHeight - handleHeight * 2 - minLog);
-        final backupMax =
-            math.max(minBackup, total - _deviceHeight - handleHeight * 2 - minLog);
-        final deviceHeight = _deviceHeight.clamp(minDevice, deviceMax);
-        final backupHeight = _backupHeight.clamp(minBackup, backupMax);
-
-        return Column(
-          children: [
-            SizedBox(height: deviceHeight, child: _buildDevices(theme)),
-            _buildSplitter(
-              'device-splitter',
-              theme,
-              (delta) => setState(() {
-                _deviceHeight =
-                    (_deviceHeight + delta).clamp(minDevice, deviceMax);
-              }),
-              () => setState(() => _deviceHeight = 210),
-            ),
-            Expanded(child: _buildLog(theme)),
-            _buildSplitter(
-              'backup-splitter',
-              theme,
-              (delta) => setState(() {
-                _backupHeight =
-                    (_backupHeight - delta).clamp(minBackup, backupMax);
-              }),
-              () => setState(() => _backupHeight = 130),
-            ),
-            SizedBox(height: backupHeight, child: _buildBackups(theme)),
-          ],
-        );
-      },
-    );
-  }
-
-  Widget _buildSplitter(
-    String key,
-    ThemeData theme,
-    void Function(double delta) onDrag,
-    VoidCallback onReset,
-  ) {
-    return MouseRegion(
-      cursor: SystemMouseCursors.resizeUpDown,
-      child: GestureDetector(
-        key: ValueKey(key),
-        behavior: HitTestBehavior.opaque,
-        onVerticalDragUpdate: (details) => onDrag(details.delta.dy),
-        onDoubleTap: onReset,
-        child: SizedBox(
-          height: 12,
-          child: Center(
-            child: Container(
-              width: 44,
-              height: 4,
-              decoration: BoxDecoration(
-                color: theme.colorScheme.outlineVariant,
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildLogo(ThemeData theme) {
+  Widget _buildLogo(ThemeData theme, {double size = 36}) {
     return Container(
-      width: 40,
-      height: 40,
+      width: size,
+      height: size,
       alignment: Alignment.center,
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(12),
-        gradient: LinearGradient(
-          colors: [
-            theme.colorScheme.primary,
-            theme.colorScheme.primary.withValues(alpha: 0.75),
-          ],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
+        color: theme.colorScheme.primary,
+        borderRadius: BorderRadius.circular(size * 0.3),
       ),
-      child: const Text(
-        '虎',
+      child: Text(
+        'R',
         style: TextStyle(
-          color: Colors.white,
-          fontSize: 20,
-          fontWeight: FontWeight.w600,
+          fontFamily: 'Menlo',
+          color: theme.colorScheme.onPrimary,
+          fontSize: size * 0.5,
+          fontWeight: FontWeight.w700,
+          height: 1.0,
         ),
       ),
     );
   }
 
-  Widget _buildHeader(ThemeData theme) {
+  Widget _buildHeader(ThemeData theme, {bool compact = false}) {
+    final brand = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          'Rime 更新器',
+          style: compact
+              ? theme.textTheme.titleMedium?.copyWith(fontSize: 18)
+              : theme.textTheme.titleLarge,
+        ),
+        const SizedBox(height: 2),
+        Text(
+          compact ? 'RIME UPDATER' : 'RIME UPDATER · 多设备一键更新',
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: theme.textTheme.labelMedium,
+        ),
+      ],
+    );
+
     return Row(
       children: [
-        _buildLogo(theme),
+        _buildLogo(theme, size: compact ? 32 : 36),
         const SizedBox(width: 12),
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              '芝士虎整 · 更新器',
-              style: theme.textTheme.titleLarge?.copyWith(
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            Text(
-              '虎码 Rime 整合包 · 多设备一键更新',
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
-            ),
-          ],
-        ),
+        if (compact) Expanded(child: brand) else brand,
         const Spacer(),
-        TextButton(onPressed: _busy ? null : _openSettings, child: const Text('设置')),
-        const SizedBox(width: 4),
-        OutlinedButton(
-          onPressed: _busy ? null : _check,
-          child: const Text('检查更新'),
-        ),
-        const SizedBox(width: 8),
-        OutlinedButton(
-          onPressed: _busy ? null : () => _runUpdate(dryRun: true),
-          child: const Text('仅预演'),
-        ),
-        const SizedBox(width: 8),
-        FilledButton(
-          onPressed: _busy ? null : () => _runUpdate(dryRun: false),
-          child: const Text('一键更新'),
-        ),
+        if (compact)
+          IconButton(
+            tooltip: '设置',
+            onPressed: _busy ? null : _openSettings,
+            icon: const Icon(Icons.settings_outlined),
+          )
+        else ...[
+          TextButton(
+            onPressed: _busy ? null : _openSettings,
+            child: const Text('设置'),
+          ),
+          const SizedBox(width: 6),
+          Container(
+            width: 1,
+            height: 22,
+            color: theme.colorScheme.outlineVariant,
+          ),
+          const SizedBox(width: 10),
+          OutlinedButton(
+            onPressed: _busy ? null : _check,
+            child: const Text('检查更新'),
+          ),
+          const SizedBox(width: 8),
+          OutlinedButton(
+            onPressed: _busy ? null : () => _runUpdate(dryRun: true),
+            child: const Text('仅预演'),
+          ),
+          const SizedBox(width: 8),
+          FilledButton(
+            onPressed: _busy ? null : () => _runUpdate(dryRun: false),
+            child: const Text('一键更新'),
+          ),
+        ],
       ],
     );
   }
 
-  List<Widget> _remoteActions() {
-    return [
-      TextButton.icon(
-        onPressed: _busy ? null : _openSync,
-        icon: const Icon(Icons.cloud_sync_outlined, size: 18),
-        label: const Text('云同步'),
-      ),
-      TextButton.icon(
-        onPressed: _busy ? null : _openSyncLibrary,
-        icon: const Icon(Icons.folder_open, size: 18),
-        label: const Text('同步库'),
-      ),
-      TextButton.icon(
-        onPressed: _busy ? null : _installFromGithub,
-        icon: const Icon(Icons.cloud_download_outlined, size: 18),
-        label: const Text('GitHub 方案'),
-      ),
-      TextButton.icon(
-        onPressed: _busy ? null : _switchScheme,
-        icon: const Icon(Icons.swap_horiz, size: 18),
-        label: const Text('换方案'),
-      ),
-      TextButton.icon(
-        onPressed: _busy ? null : _installLocalZip,
-        icon: const Icon(Icons.archive_outlined, size: 18),
-        label: const Text('从本地 zip 安装'),
-      ),
-    ];
+  int _countOutdated() {
+    if (_remoteVersion.isEmpty) return 0;
+    return _profiles.where((profile) {
+      final current = rime.readLocalVersion(profile.path);
+      return current.isNotEmpty && current != _remoteVersion;
+    }).length;
   }
 
-  Widget _buildRemoteLine(ThemeData theme) {
-    final text = _remoteVersion.isEmpty
-        ? '远端最新：未检查'
-        : '远端最新：v$_remoteVersion'
-            '（${_remoteDelta ? '增量包' : '完整包'} · $_remoteAsset）';
-    return Row(
+  Widget _buildStat(
+    ThemeData theme,
+    String label,
+    String value, {
+    bool highlight = false,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
       children: [
-        Expanded(
-          child: Text(
-            text,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: theme.textTheme.bodyMedium?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
-            ),
+        Text(
+          value,
+          style: TextStyle(
+            fontFamily: 'Menlo',
+            fontSize: 18,
+            fontWeight: FontWeight.w700,
+            height: 1.0,
+            letterSpacing: -0.4,
+            color: highlight
+                ? theme.colorScheme.primary
+                : theme.colorScheme.onSurface,
+            fontFeatures: const [FontFeature.tabularFigures()],
           ),
         ),
-        ..._remoteActions(),
+        const SizedBox(height: 5),
+        Text(label, style: theme.textTheme.labelMedium),
+      ],
+    );
+  }
+
+  Widget _buildHero(ThemeData theme, {bool compact = false}) {
+    final checked = _remoteVersion.isNotEmpty;
+    final outdated = _countOutdated();
+    final backups =
+        _backups.values.fold<int>(0, (sum, list) => sum + list.length);
+
+    final releaseInfo = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text('REMOTE RELEASE', style: theme.textTheme.labelMedium),
+        const SizedBox(height: 7),
+        if (checked)
+          Text(
+            'v$_remoteVersion',
+            style: TextStyle(
+              fontFamily: 'Menlo',
+              fontSize: compact ? 30 : 36,
+              fontWeight: FontWeight.w700,
+              height: 1.0,
+              letterSpacing: -1.2,
+              color: theme.colorScheme.onSurface,
+              fontFeatures: const [FontFeature.tabularFigures()],
+            ),
+          )
+        else
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 4),
+            child: Text(
+              '未检查',
+              style: TextStyle(
+                fontSize: compact ? 18 : 20,
+                fontWeight: FontWeight.w600,
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+        const SizedBox(height: 7),
+        Text(
+          checked
+              ? '${_remoteDelta ? 'DELTA' : 'FULL'} · $_remoteAsset'
+              : '点「检查更新」获取最新版本',
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            fontFamily: checked ? 'Menlo' : null,
+            fontSize: 11,
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
+        ),
+      ],
+    );
+
+    final stats = Row(
+      mainAxisSize: compact ? MainAxisSize.max : MainAxisSize.min,
+      children: [
+        if (compact) ...[
+          Expanded(child: _buildStat(theme, '设备', '${_profiles.length}')),
+          Expanded(
+            child: _buildStat(
+              theme,
+              '可更新',
+              checked ? '$outdated' : '—',
+              highlight: outdated > 0,
+            ),
+          ),
+          Expanded(child: _buildStat(theme, '备份', '$backups')),
+        ] else ...[
+          _buildStat(theme, '设备', '${_profiles.length}'),
+          const SizedBox(width: 28),
+          _buildStat(
+            theme,
+            '可更新',
+            checked ? '$outdated' : '—',
+            highlight: outdated > 0,
+          ),
+          const SizedBox(width: 28),
+          _buildStat(theme, '备份', '$backups'),
+        ],
+      ],
+    );
+
+    return Container(
+      padding: EdgeInsets.fromLTRB(
+        compact ? 16 : 22,
+        compact ? 16 : 20,
+        compact ? 16 : 22,
+        compact ? 14 : 18,
+      ),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: theme.colorScheme.outlineVariant),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (compact) ...[
+            releaseInfo,
+            const SizedBox(height: 16),
+            stats,
+          ] else
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Expanded(child: releaseInfo),
+                const SizedBox(width: 20),
+                stats,
+              ],
+            ),
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              Expanded(child: _buildProgress(theme)),
+              const SizedBox(width: 14),
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 260),
+                child: Text(
+                  _status,
+                  textAlign: TextAlign.right,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 11.5,
+                    color: _statusError
+                        ? theme.colorScheme.error
+                        : theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          if (!compact) ...[
+            const SizedBox(height: 12),
+            Divider(height: 1, color: theme.colorScheme.outlineVariant),
+            const SizedBox(height: 4),
+            _buildToolsRow(theme),
+          ],
+        ],
+      ),
+    );
+  }
+
+  /// 桌面端工具条：云同步 / 同步库 / GitHub 方案 / 换方案 / 本地 zip。
+  Widget _buildToolsRow(ThemeData theme) {
+    Widget action(IconData icon, String label, VoidCallback onTap) {
+      return TextButton.icon(
+        onPressed: _busy ? null : onTap,
+        style: TextButton.styleFrom(
+          minimumSize: const Size(0, 32),
+          padding: const EdgeInsets.symmetric(horizontal: 9),
+          textStyle: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w500),
+        ),
+        icon: Icon(icon, size: 15),
+        label: Text(label),
+      );
+    }
+
+    return Row(
+      children: [
+        Text('TOOLS', style: theme.textTheme.labelMedium),
+        const SizedBox(width: 6),
+        Expanded(
+          child: Wrap(
+            spacing: 2,
+            runSpacing: 2,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              action(Icons.cloud_sync_outlined, '云同步', _openSync),
+              action(Icons.folder_open, '同步库', _openSyncLibrary),
+              action(Icons.cloud_download_outlined, 'GitHub 方案', _installFromGithub),
+              action(Icons.swap_horiz, '换方案', _switchScheme),
+              action(Icons.archive_outlined, '从本地 zip 安装', _installLocalZip),
+            ],
+          ),
+        ),
       ],
     );
   }
@@ -1354,144 +1398,219 @@ class _HomePageState extends State<HomePage> {
     return Card(
       margin: EdgeInsets.zero,
       child: Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 8, 8, 0),
-              child: Row(
-                children: [
-                  Text(
-                    '设备 ${_profiles.length}',
-                    style: theme.textTheme.labelMedium?.copyWith(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 8, 6),
+            child: Row(
+              children: [
+                Text('DEVICES', style: theme.textTheme.labelMedium),
+                const SizedBox(width: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 1),
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.surfaceContainerHighest,
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Text(
+                    '${_profiles.length}',
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      fontWeight: FontWeight.w600,
                       color: theme.colorScheme.onSurfaceVariant,
                     ),
                   ),
-                  if (_settings.customDirs.isNotEmpty) ...[
-                    const SizedBox(width: 8),
-                    Text(
-                      '手动 ${_settings.customDirs.length}',
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: theme.colorScheme.onSurfaceVariant,
+                ),
+                if (_settings.customDirs.isNotEmpty) ...[
+                  const SizedBox(width: 8),
+                  Text(
+                    '手动 ${_settings.customDirs.length}',
+                    style: theme.textTheme.labelSmall,
+                  ),
+                ],
+                const Spacer(),
+                if (!Platform.isAndroid)
+                  IconButton(
+                    tooltip: '添加 Rime 目录',
+                    onPressed: _busy ? null : _addRimeDir,
+                    icon: const Icon(Icons.add, size: 18),
+                    visualDensity: VisualDensity.compact,
+                    style: IconButton.styleFrom(
+                      side: BorderSide(color: theme.colorScheme.outlineVariant),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(9),
                       ),
                     ),
-                  ],
-                  const Spacer(),
-                  if (!Platform.isAndroid)
-                    IconButton(
-                      tooltip: '添加 Rime 目录',
-                      onPressed: _busy ? null : _addRimeDir,
-                      icon: const Icon(Icons.add, size: 20),
-                      visualDensity: VisualDensity.compact,
-                    ),
-                ],
-              ),
+                  ),
+              ],
             ),
-            Expanded(
-              child: _profiles.isEmpty
-                  ? Center(
+          ),
+          Expanded(
+            child: _profiles.isEmpty
+                ? Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
                       child: Text(
                         '没有识别到 Rime 用户目录，点右上角「+」手动添加',
+                        textAlign: TextAlign.center,
                         style: theme.textTheme.bodySmall?.copyWith(
                           color: theme.colorScheme.onSurfaceVariant,
                         ),
                       ),
-                    )
-                  : ListView.separated(
-                      padding: const EdgeInsets.symmetric(vertical: 6),
-                      itemCount: _profiles.length,
-                      separatorBuilder: (_, __) => const Divider(height: 1),
-                      itemBuilder: (context, index) {
-                        final profile = _profiles[index];
-                        final current = rime.readLocalVersion(profile.path);
-                        final selected = _selected.contains(profile.path);
-                        return CheckboxListTile(
-                          dense: true,
-                          controlAffinity: ListTileControlAffinity.leading,
-                          value: selected,
-                          onChanged: _busy
-                              ? null
-                              : (value) {
-                                  setState(() {
-                                    if (value == true) {
-                                      _selected.add(profile.path);
-                                    } else {
-                                      _selected.remove(profile.path);
-                                    }
-                                  });
-                                },
-                          title: Row(
-                            children: [
-                              Text(
-                                profile.label,
-                                style:
-                                    const TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                  )
+                : ListView.builder(
+                    padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
+                    itemCount: _profiles.length,
+                    itemBuilder: (context, index) =>
+                        _buildDeviceRow(theme, _profiles[index]),
+                  ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _toggleProfile(String path) {
+    setState(() {
+      if (!_selected.remove(path)) _selected.add(path);
+    });
+  }
+
+  Widget _buildDeviceRow(ThemeData theme, Profile profile) {
+    final current = rime.readLocalVersion(profile.path);
+    final selected = _selected.contains(profile.path);
+    final radius = BorderRadius.circular(12);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 2),
+      child: Material(
+        color: selected
+            ? theme.colorScheme.primary.withValues(alpha: .07)
+            : Colors.transparent,
+        borderRadius: radius,
+        child: InkWell(
+          borderRadius: radius,
+          onTap: _busy ? null : () => _toggleProfile(profile.path),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(10, 10, 4, 10),
+            child: Row(
+              children: [
+                _buildSelectBox(theme, selected),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Flexible(
+                            child: Text(
+                              profile.label,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontSize: 13.5,
+                                fontWeight: FontWeight.w600,
+                                letterSpacing: -0.1,
                               ),
-                              const SizedBox(width: 8),
-                              _buildStatusChip(theme, current),
-                              if (_settings.customDirs.contains(profile.path)) ...[
-                                const SizedBox(width: 4),
-                                InkWell(
-                                  onTap: _busy
-                                      ? null
-                                      : () => _renameProfile(profile),
-                                  borderRadius: BorderRadius.circular(4),
-                                  child: Padding(
-                                    padding: const EdgeInsets.all(3),
-                                    child: Icon(
-                                      Icons.edit_outlined,
-                                      size: 14,
-                                      color: theme.colorScheme.onSurfaceVariant,
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ],
-                          ),
-                          subtitle: Text(
-                            profile.path,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              fontFamily: 'Menlo',
-                              fontSize: 11,
                             ),
                           ),
-                          secondary: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Text(
-                                current.isEmpty ? '未知' : 'v$current',
-                                style: theme.textTheme.bodyMedium?.copyWith(
-                                  fontFeatures: const [
-                                    FontFeature.tabularFigures(),
-                                  ],
+                          const SizedBox(width: 8),
+                          _buildStatusChip(theme, current),
+                          if (_settings.customDirs.contains(profile.path)) ...[
+                            const SizedBox(width: 6),
+                            InkWell(
+                              onTap: _busy
+                                  ? null
+                                  : () => _renameProfile(profile),
+                              borderRadius: BorderRadius.circular(4),
+                              child: Padding(
+                                padding: const EdgeInsets.all(3),
+                                child: Icon(
+                                  Icons.edit_outlined,
+                                  size: 13,
+                                  color: theme.colorScheme.onSurfaceVariant,
                                 ),
                               ),
-                              PopupMenuButton<String>(
-                                tooltip: '更多操作',
-                                enabled: !_busy,
-                                iconSize: 18,
-                                padding: EdgeInsets.zero,
-                                icon: const Icon(Icons.more_vert),
-                                onSelected: (value) {
-                                  if (value == 'remove') {
-                                    _removeProfile(profile);
-                                  }
-                                },
-                                itemBuilder: (context) => const [
-                                  PopupMenuItem(
-                                    value: 'remove',
-                                    child: Text('删除设备'),
-                                  ),
-                                ],
-                              ),
-                            ],
-                          ),
-                        );
-                      },
-                    ),
+                            ),
+                          ],
+                        ],
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        profile.path,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontFamily: 'Menlo',
+                          fontSize: 10.5,
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  current.isEmpty ? '—' : 'v$current',
+                  style: TextStyle(
+                    fontFamily: 'Menlo',
+                    fontSize: 12,
+                    color: theme.colorScheme.onSurfaceVariant,
+                    fontFeatures: const [FontFeature.tabularFigures()],
+                  ),
+                ),
+                PopupMenuButton<String>(
+                  tooltip: '更多操作',
+                  enabled: !_busy,
+                  iconSize: 18,
+                  padding: EdgeInsets.zero,
+                  icon: Icon(
+                    Icons.more_vert,
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                  onSelected: (value) {
+                    if (value == 'remove') {
+                      _removeProfile(profile);
+                    }
+                  },
+                  itemBuilder: (context) => const [
+                    PopupMenuItem(value: 'remove', child: Text('删除设备')),
+                  ],
+                ),
+              ],
             ),
-          ],
+          ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildSelectBox(ThemeData theme, bool selected) {
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 120),
+      width: 18,
+      height: 18,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: selected ? theme.colorScheme.primary : Colors.transparent,
+        borderRadius: BorderRadius.circular(5),
+        border: Border.all(
+          color: selected
+              ? theme.colorScheme.primary
+              : theme.colorScheme.outlineVariant,
+          width: 1.2,
+        ),
+      ),
+      child: selected
+          ? Text(
+              '✓',
+              style: TextStyle(
+                fontSize: 12,
+                height: 1.0,
+                fontWeight: FontWeight.w700,
+                color: theme.colorScheme.onPrimary,
+              ),
+            )
+          : null,
     );
   }
 
@@ -1506,58 +1625,52 @@ class _HomePageState extends State<HomePage> {
       color = theme.colorScheme.onSurfaceVariant;
     } else if (current == _remoteVersion) {
       label = '已最新';
-      color = const Color(0xFF15803D);
+      color = AppColors.success;
     } else {
       label = '可更新到 $_remoteVersion';
       color = theme.colorScheme.primary;
     }
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2.5),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.12),
         borderRadius: BorderRadius.circular(999),
       ),
-      child: Text(
-        label,
-        style: TextStyle(fontSize: 11, color: color, fontWeight: FontWeight.w500),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 4,
+            height: 4,
+            decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+          ),
+          const SizedBox(width: 5),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 10,
+              height: 1.2,
+              color: color,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
       ),
     );
   }
 
-  Widget _buildProgress(ThemeData theme, {bool compact = false}) {
-    return Row(
-      children: [
-        Expanded(
-          child: LinearProgressIndicator(
-            value: _progress,
-            minHeight: 4,
-            backgroundColor: theme.colorScheme.surfaceContainerHighest,
-            borderRadius: BorderRadius.circular(2),
-          ),
-        ),
-        const SizedBox(width: 12),
-        SizedBox(
-          width: compact ? 150 : 220,
-          child: Text(
-            _status,
-            textAlign: TextAlign.right,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: _statusError
-                  ? theme.colorScheme.error
-                  : theme.colorScheme.onSurfaceVariant,
-            ),
-          ),
-        ),
-      ],
+  Widget _buildProgress(ThemeData theme) {
+    return LinearProgressIndicator(
+      value: _progress,
+      minHeight: 4,
+      backgroundColor: theme.colorScheme.surfaceContainerHighest,
+      borderRadius: BorderRadius.circular(999),
     );
   }
 
-  List<InlineSpan> _logSpans(ThemeData theme) {
+  List<InlineSpan> _logSpans() {
     const latest = '（最新）';
     const updatable = '（可更新）';
-    const green = Color(0xFF15803D);
     final spans = <InlineSpan>[];
 
     for (var i = 0; i < _log.length; i++) {
@@ -1569,7 +1682,9 @@ class _HomePageState extends State<HomePage> {
         spans.add(TextSpan(
           text: suffix,
           style: TextStyle(
-            color: line.endsWith(latest) ? green : theme.colorScheme.primary,
+            color: line.endsWith(latest)
+                ? AppColors.consoleGreen
+                : AppColors.consoleAccent,
             fontWeight: FontWeight.w600,
           ),
         ));
@@ -1577,7 +1692,7 @@ class _HomePageState extends State<HomePage> {
         spans.add(TextSpan(
           text: line,
           style: line.startsWith('✗')
-              ? TextStyle(color: theme.colorScheme.error)
+              ? const TextStyle(color: AppColors.consoleRed)
               : null,
         ));
       }
@@ -1587,19 +1702,55 @@ class _HomePageState extends State<HomePage> {
   }
 
   Widget _buildLog(ThemeData theme) {
-    return Card(
-      margin: EdgeInsets.zero,
+    final consoleColor = theme.brightness == Brightness.dark
+        ? AppColors.consoleBgDark
+        : AppColors.consoleBg;
+    return Container(
+      decoration: BoxDecoration(
+        color: consoleColor,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: theme.colorScheme.outlineVariant.withValues(alpha: .5),
+        ),
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 10, 16, 4),
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
             child: Row(
               children: [
-                Text(
+                Container(
+                  width: 6,
+                  height: 6,
+                  decoration: const BoxDecoration(
+                    color: AppColors.consoleAccent,
+                    shape: BoxShape.circle,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                const Text(
+                  'CONSOLE',
+                  style: TextStyle(
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: 1.6,
+                    color: AppColors.consoleMuted,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                const Text(
                   '运行日志',
-                  style: theme.textTheme.labelMedium?.copyWith(
-                    color: theme.colorScheme.onSurfaceVariant,
+                  style: TextStyle(fontSize: 11, color: AppColors.consoleMuted),
+                ),
+                const Spacer(),
+                Text(
+                  _log.isEmpty ? 'IDLE' : '${_log.length} LINES',
+                  style: const TextStyle(
+                    fontFamily: 'Menlo',
+                    fontSize: 10,
+                    letterSpacing: .6,
+                    color: AppColors.consoleMuted,
                   ),
                 ),
               ],
@@ -1607,30 +1758,33 @@ class _HomePageState extends State<HomePage> {
           ),
           Expanded(
             child: Container(
-              margin: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-              padding: const EdgeInsets.all(10),
+              margin: const EdgeInsets.fromLTRB(10, 0, 10, 10),
+              padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
               decoration: BoxDecoration(
-                color: theme.colorScheme.surfaceContainerHighest,
-                borderRadius: BorderRadius.circular(8),
+                color: Colors.black.withValues(alpha: .22),
+                borderRadius: BorderRadius.circular(12),
               ),
               child: _log.isEmpty
-                  ? Center(
+                  ? const Center(
                       child: Text(
                         '等待操作。建议先「检查更新」，再「仅预演」确认文件，最后「一键更新」。',
                         textAlign: TextAlign.center,
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: theme.colorScheme.onSurfaceVariant,
+                        style: TextStyle(
+                          fontSize: 12,
+                          height: 1.6,
+                          color: AppColors.consoleMuted,
                         ),
                       ),
                     )
                   : SingleChildScrollView(
                       controller: _logScroll,
                       child: SelectableText.rich(
-                        TextSpan(children: _logSpans(theme)),
+                        TextSpan(children: _logSpans()),
                         style: const TextStyle(
                           fontFamily: 'Menlo',
                           fontSize: 12,
                           height: 1.6,
+                          color: AppColors.consoleText,
                         ),
                       ),
                     ),
@@ -1651,17 +1805,56 @@ class _HomePageState extends State<HomePage> {
             : 'v${backup.previousVersion}';
         final to = backup.version.isEmpty ? '未知' : 'v${backup.version}';
         rows.add(
-          ListTile(
-            dense: true,
-            contentPadding: const EdgeInsets.symmetric(horizontal: 12),
-            title: Text(
-              '${profile.label} · ${backup.stamp}',
-              style: const TextStyle(fontSize: 12),
-            ),
-            subtitle: Text('$from → $to', style: const TextStyle(fontSize: 11)),
-            trailing: TextButton(
-              onPressed: _busy ? null : () => _rollback(profile, backup),
-              child: const Text('回滚'),
+          Padding(
+            padding: const EdgeInsets.only(bottom: 2),
+            child: Row(
+              children: [
+                const SizedBox(width: 4),
+                Icon(
+                  Icons.history_rounded,
+                  size: 14,
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '${profile.label} · ${backup.stamp}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        '$from → $to',
+                        style: TextStyle(
+                          fontFamily: 'Menlo',
+                          fontSize: 10.5,
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                OutlinedButton(
+                  onPressed: _busy ? null : () => _rollback(profile, backup),
+                  style: OutlinedButton.styleFrom(
+                    minimumSize: const Size(0, 28),
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    textStyle: const TextStyle(
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  child: const Text('回滚'),
+                ),
+              ],
             ),
           ),
         );
@@ -1674,19 +1867,19 @@ class _HomePageState extends State<HomePage> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 6, 8, 0),
+            padding: const EdgeInsets.fromLTRB(16, 12, 8, 6),
             child: Row(
               children: [
-                Text(
-                  '备份与回滚',
-                  style: theme.textTheme.labelMedium?.copyWith(
-                    color: theme.colorScheme.onSurfaceVariant,
-                  ),
-                ),
+                Text('BACKUPS', style: theme.textTheme.labelMedium),
+                const SizedBox(width: 8),
+                Text('备份与回滚', style: theme.textTheme.labelSmall),
                 const Spacer(),
                 if (rows.isNotEmpty)
                   TextButton(
                     onPressed: _busy ? null : _clearBackups,
+                    style: TextButton.styleFrom(
+                      textStyle: const TextStyle(fontSize: 11.5),
+                    ),
                     child: const Text('清理备份'),
                   ),
               ],
@@ -1695,14 +1888,21 @@ class _HomePageState extends State<HomePage> {
           Expanded(
             child: rows.isEmpty
                 ? Center(
-                    child: Text(
-                      '还没有备份。勾选“更新前完整快照”后执行一次更新即可生成。',
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: theme.colorScheme.onSurfaceVariant,
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Text(
+                        '还没有备份。勾选“更新前完整快照”后执行一次更新即可生成。',
+                        textAlign: TextAlign.center,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
                       ),
                     ),
                   )
-                : ListView(children: rows),
+                : ListView(
+                    padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
+                    children: rows,
+                  ),
           ),
         ],
       ),
