@@ -376,6 +376,17 @@ curl -s http://127.0.0.1:8766/api/state
      `<Rime>/.cheese-tiger-backup/switch-<时间戳>/` → 清理 `lua/opencc/models/dicts` 等
      与根目录非个人 yaml → 安装 → 只补回缺失的个人数据 → 部署；支持本地 zip 与仓库包；
    - 新增「清空日志」；esbuild 语法检查通过；**未真机验证**
+29. iOS 云同步与布局重构（2026-11-04，脚本 1.2.0）：
+   - 参考用户自备的 SyncClipboard 脚本，确认 Scripting `fetch` 的 `body` 支持
+     `Data`/`ArrayBuffer`、`Response.data()` 可直接落盘（官方文档 scriptingapp.github.io）；
+   - 新增 `utils/webdav.ts`（MKCOL/PUT/GET/DELETE + Basic Auth，路径逐段编码，
+     中文文件名可用）与 `utils/sync_service.ts`（`CheeseTigerSync/<kind>/files/` +
+     `manifest.json`，上传/下载/删除、`*.userdb` 目录展开）；
+   - 界面从三页 TabView 改成与参考脚本一致的单页 List：目录、更新、云同步
+     （TextField/SecureField 配置）、备份回滚、换方案、更新来源、设置、日志；
+     密码存 Keychain；
+   - esbuild 语法检查通过；**未真机验证**（重点：坚果云 MKCOL/PUT 中文路径、
+     `.userdb` 二进制上传、下载覆盖前备份）
 
 ## 7. 下一步（按优先级）
 

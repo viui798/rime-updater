@@ -1,17 +1,15 @@
 import {
   Button,
   HStack,
-  Image,
   List,
   Navigation,
   NavigationStack,
   Section,
+  SecureField,
   Spacer,
-  TabView,
   Text,
+  TextField,
   Toggle,
-  Toolbar,
-  ToolbarItem,
   VStack,
   useEffect,
   useState,
@@ -39,11 +37,22 @@ import {
   BACKUP_DIR,
   type BackupEntry,
 } from "./utils/install"
-import { switchScheme } from "./utils/switch_scheme"
+import { switchScheme, backupUserData } from "./utils/switch_scheme"
+import {
+  deleteCloudFiles,
+  fetchLibrary,
+  pullLibrary,
+  pushFiles,
+  syncKey,
+  SYNC_ROOT,
+  type SyncFile,
+} from "./utils/sync_service"
+import { createClient, isClientReady, type WebDavClient } from "./utils/webdav"
 
 console.log("[cheese-tiger] script loaded")
 
 const CONFIG_KEY = "cheese_tiger_ios_config"
+const PASSWORD_KEY = "cheese_tiger_webdav_password"
 
 type DirEntry = {
   id: string
@@ -62,6 +71,10 @@ type Config = {
   verboseLog: boolean
   repo: string
   assetName: string
+  syncUrl: string
+  syncUser: string
+  deviceName: string
+  deviceId: string
 }
 
 function normalizeMethod(value: any): InputMethod {
@@ -113,6 +126,10 @@ function normalizeConfig(data: any): Config {
     verboseLog: data?.verboseLog !== false,
     repo: parseRepo(data?.repo),
     assetName: String(data?.assetName ?? ""),
+    syncUrl: String(data?.syncUrl ?? ""),
+    syncUser: String(data?.syncUser ?? ""),
+    deviceName: String(data?.deviceName ?? "iPhone"),
+    deviceId: String(data?.deviceId ?? ""),
   }
 }
 
@@ -132,12 +149,42 @@ function loadConfig(): Config {
     verboseLog: true,
     repo: DEFAULT_REPO,
     assetName: "",
+    syncUrl: "",
+    syncUser: "",
+    deviceName: "iPhone",
+    deviceId: "",
   }
 }
 
 function saveConfig(config: Config) {
   try {
     storage()?.set?.(CONFIG_KEY, JSON.stringify(config))
+  } catch {}
+}
+
+function loadPassword(): string {
+  try {
+    const keychain: any = (globalThis as any).Keychain
+    const value = keychain?.get?.(PASSWORD_KEY)
+    if (value) return String(value)
+  } catch {}
+  try {
+    return String(storage()?.get?.(PASSWORD_KEY) ?? "")
+  } catch {
+    return ""
+  }
+}
+
+function persistPassword(password: string) {
+  try {
+    const keychain: any = (globalThis as any).Keychain
+    if (typeof keychain?.set === "function") {
+      keychain.set(PASSWORD_KEY, password)
+      return
+    }
+  } catch {}
+  try {
+    storage()?.set?.(PASSWORD_KEY, password)
   } catch {}
 }
 
@@ -160,6 +207,17 @@ function releaseSnippet(body: string): string {
     .join("\n")
 }
 
+function formatTime(value: string): string {
+  if (!value) return ""
+  const date = new Date(value)
+  if (isNaN(date.getTime())) return value
+  const two = (n: number) => String(n).padStart(2, "0")
+  return (
+    `${date.getFullYear()}-${two(date.getMonth() + 1)}-${two(date.getDate())} ` +
+    `${two(date.getHours())}:${two(date.getMinutes())}`
+  )
+}
+
 function KvRow(props: { label: string; value: string; color?: string }) {
   return (
     <HStack>
@@ -175,12 +233,15 @@ function KvRow(props: { label: string; value: string; color?: string }) {
 function MainView() {
   const dismiss = Navigation.useDismiss()
   const [config, setConfig] = useState<Config>(loadConfig())
+  const [password, setPassword] = useState<string>(loadPassword())
   const [remote, setRemote] = useState<ReleaseInfo | null>(null)
   const [busy, setBusy] = useState(false)
   const [percent, setPercent] = useState(0)
   const [log, setLog] = useState("")
   const [files, setFiles] = useState<string[]>([])
   const [backups, setBackups] = useState<BackupEntry[]>([])
+  const [cloudFiles, setCloudFiles] = useState<SyncFile[]>([])
+  const [cloudDevices, setCloudDevices] = useState(0)
 
   const activeDir =
     config.dirs.find((dir) => dir.id === config.activeId) ?? config.dirs[0]
@@ -198,6 +259,7 @@ function MainView() {
       ? `下载 ${Math.round(percent * 100)}%`
       : "处理中…"
     : ""
+  const recentLog = log.split("\n").slice(-14).join("\n")
 
   function append(line: string) {
     setLog((previous) => (previous ? `${previous}\n${line}` : line))
@@ -211,6 +273,7 @@ function MainView() {
   function setActive(id: string) {
     updateConfig({ ...config, activeId: id })
     void refreshBackups(config.dirs.find((dir) => dir.id === id))
+    void refreshCloud(config.dirs.find((dir) => dir.id === id))
   }
 
   async function resolveTarget(dir: DirEntry): Promise<string> {
@@ -256,6 +319,187 @@ function MainView() {
     } catch (error: any) {
       setBackups([])
       append(`读取备份失败：${String(error?.message ?? error)}`)
+    }
+  }
+
+  function syncClient(): WebDavClient {
+    return createClient(config.syncUrl, config.syncUser, password)
+  }
+
+  function deviceIdNow(): string {
+    if (config.deviceId) return config.deviceId
+    const id = `ios-${Date.now()}`
+    updateConfig({ ...config, deviceId: id })
+    return id
+  }
+
+  function deviceNameNow(): string {
+    return (config.deviceName || "iPhone").trim() || "iPhone"
+  }
+
+  async function refreshCloud(dir?: DirEntry) {
+    const targetDir = dir ?? activeDir
+    const client = syncClient()
+    if (!isClientReady(client)) {
+      setCloudFiles([])
+      setCloudDevices(0)
+      return
+    }
+    const kind = syncKey(targetDir?.inputMethod ?? "hamster")
+    const library = await fetchLibrary(client, kind)
+    setCloudFiles(library.files)
+    setCloudDevices(library.devices.length)
+  }
+
+  function saveSyncConfig() {
+    const next = {
+      ...config,
+      syncUrl: config.syncUrl.trim().replace(/\/+$/, ""),
+      syncUser: config.syncUser.trim(),
+      deviceName: deviceNameNow(),
+    }
+    updateConfig(next)
+    persistPassword(password)
+    append("云同步配置已保存")
+  }
+
+  async function uploadCloud() {
+    if (busy) return
+    const dir = activeDir
+    if (!dir) {
+      append("请先添加一个 Rime 用户目录。")
+      return
+    }
+    const client = syncClient()
+    if (!isClientReady(client)) {
+      append("请先填写 WebDAV 地址。")
+      return
+    }
+    const DialogApi: any = (globalThis as any).Dialog
+    if (DialogApi?.confirm) {
+      const ok = await DialogApi.confirm({
+        title: "上传本机",
+        message: `把「${dir.name}」的个人数据上传到云端同步库？同名文件会覆盖云端。`,
+        confirmLabel: "上传",
+        cancelLabel: "取消",
+      })
+      if (!ok) return
+    }
+    setBusy(true)
+    setPercent(0)
+    try {
+      saveSyncConfig()
+      const kind = syncKey(dir.inputMethod)
+      const target = await resolveTarget(dir)
+      append(`[${dir.name}] 上传个人数据到 ${SYNC_ROOT}/${kind}/files`)
+      const result = await pushFiles({
+        client,
+        kind,
+        target,
+        deviceId: deviceIdNow(),
+        deviceName: deviceNameNow(),
+        log: append,
+      })
+      append(`[${dir.name}] 已上传 ${result.uploaded} 个文件`)
+      await refreshCloud()
+    } catch (error: any) {
+      append(`✗ 上传失败：${String(error?.message ?? error)}`)
+    } finally {
+      setBusy(false)
+      setPercent(0)
+    }
+  }
+
+  async function downloadCloud() {
+    if (busy) return
+    const dir = activeDir
+    if (!dir) {
+      append("请先添加一个 Rime 用户目录。")
+      return
+    }
+    const client = syncClient()
+    if (!isClientReady(client)) {
+      append("请先填写 WebDAV 地址。")
+      return
+    }
+    const DialogApi: any = (globalThis as any).Dialog
+    if (DialogApi?.confirm) {
+      const ok = await DialogApi.confirm({
+        title: "下载云端",
+        message: `把云端同步库写进「${dir.name}」？覆盖前会先备份本机个人数据。`,
+        confirmLabel: "下载",
+        cancelLabel: "取消",
+      })
+      if (!ok) return
+    }
+    setBusy(true)
+    setPercent(0)
+    try {
+      saveSyncConfig()
+      const kind = syncKey(dir.inputMethod)
+      const target = await resolveTarget(dir)
+      append(`[${dir.name}] 下载 ${SYNC_ROOT}/${kind}/files`)
+      await pullLibrary({
+        client,
+        kind,
+        target,
+        log: append,
+        backupLabel: `${dir.name}-同步前`,
+        backup: async (label) => {
+          await backupUserData(target, label, append)
+        },
+      })
+      await deployDir(dir)
+      await refreshCloud()
+      await refreshFiles()
+      append("云同步完成")
+    } catch (error: any) {
+      append(`✗ 下载失败：${String(error?.message ?? error)}`)
+    } finally {
+      setBusy(false)
+      setPercent(0)
+    }
+  }
+
+  async function refreshCloudList() {
+    if (busy) return
+    setBusy(true)
+    try {
+      await refreshCloud()
+      append(`云端清单：${cloudFiles.length} 个文件`)
+    } catch (error: any) {
+      append(`✗ 读取云端清单失败：${String(error?.message ?? error)}`)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function removeCloudFile(file: SyncFile) {
+    if (busy) return
+    const DialogApi: any = (globalThis as any).Dialog
+    if (DialogApi?.confirm) {
+      const ok = await DialogApi.confirm({
+        title: "删除云端文件",
+        message: `从云端删除 ${file.path}？本机文件不受影响。`,
+        confirmLabel: "删除",
+        cancelLabel: "取消",
+      })
+      if (!ok) return
+    }
+    setBusy(true)
+    try {
+      const kind = syncKey(activeDir?.inputMethod ?? "hamster")
+      await deleteCloudFiles({
+        client: syncClient(),
+        kind,
+        paths: [file.path],
+        log: append,
+      })
+      await refreshCloud()
+    } catch (error: any) {
+      append(`✗ 删除失败：${String(error?.message ?? error)}`)
+    } finally {
+      setBusy(false)
     }
   }
 
@@ -306,7 +550,6 @@ function MainView() {
           initialDirectory: activeDir?.path || undefined,
         })
       } catch {
-        // initialDirectory 失效时再试一次，不带初始目录
         result = await picker.pickDirectoryBookmark()
       }
       if (!result) return
@@ -462,17 +705,7 @@ function MainView() {
   async function deployActive() {
     const dir = activeDir
     if (!dir) return
-    if (dir.inputMethod === "none") {
-      append("当前目录设置为手动部署")
-      return
-    }
-    append(`请求 ${methodLabel(dir.inputMethod)} 部署…`)
-    try {
-      await deployInputMethod(dir.inputMethod)
-      append("已请求部署")
-    } catch (error: any) {
-      append(`✗ 部署失败：${String(error?.message ?? error)}`)
-    }
+    await deployDir(dir)
   }
 
   async function deployDir(dir: DirEntry) {
@@ -583,6 +816,30 @@ function MainView() {
     }
   }
 
+  async function pickZip(): Promise<{ path: string; name: string } | null> {
+    const picker: any = (globalThis as any).DocumentPicker
+    if (typeof picker?.pickFiles !== "function") {
+      append("当前 Scripting 版本不支持选择文件，请先升级 Scripting。")
+      return null
+    }
+    const DialogApi: any = (globalThis as any).Dialog
+    const picked = await picker.pickFiles({
+      allowsMultipleSelection: false,
+      shouldShowFileExtensions: true,
+    })
+    if (!picked || !picked.length) return null
+    const zipName = basename(String(picked[0]))
+    if (!zipName.toLowerCase().endsWith(".zip")) {
+      void DialogApi?.alert?.({
+        title: "只支持 zip",
+        message: "请选择方案包里以 .zip 结尾的文件。",
+        confirmLabel: "知道了",
+      })
+      return null
+    }
+    return { path: String(picked[0]), name: zipName }
+  }
+
   async function installLocalZip() {
     if (busy) return
     const dir = activeDir
@@ -590,32 +847,15 @@ function MainView() {
       append("请先添加一个 Rime 用户目录。")
       return
     }
-    const picker: any = (globalThis as any).DocumentPicker
-    if (typeof picker?.pickFiles !== "function") {
-      append("当前 Scripting 版本不支持选择文件，请先升级 Scripting。")
-      return
-    }
     const DialogApi: any = (globalThis as any).Dialog
     try {
-      const picked = await picker.pickFiles({
-        allowsMultipleSelection: false,
-        shouldShowFileExtensions: true,
-      })
-      if (!picked || !picked.length) return
-      const zipName = basename(String(picked[0]))
-      if (!zipName.toLowerCase().endsWith(".zip")) {
-        void DialogApi?.alert?.({
-          title: "只支持 zip",
-          message: "请选择方案包里以 .zip 结尾的文件。",
-          confirmLabel: "知道了",
-        })
-        return
-      }
-      const version = inferVersionFromName(zipName) || "本地包"
+      const zip = await pickZip()
+      if (!zip) return
+      const version = inferVersionFromName(zip.name) || "本地包"
       if (DialogApi?.confirm) {
         const ok = await DialogApi.confirm({
           title: "从本地 zip 安装",
-          message: `将 ${zipName} 安装到「${dir.name}」？覆盖前会生成快照备份。`,
+          message: `将 ${zip.name} 安装到「${dir.name}」？覆盖前会生成快照备份。`,
           confirmLabel: "安装",
           cancelLabel: "取消",
         })
@@ -623,9 +863,9 @@ function MainView() {
       }
       setBusy(true)
       setPercent(0)
-      append(`准备本地包 ${zipName}（版本 ${version}）`)
-      const zip = await stageLocalZip(String(picked[0]))
-      await installToDirs(zip, version, [dir])
+      append(`准备本地包 ${zip.name}（版本 ${version}）`)
+      const staged = await stageLocalZip(zip.path)
+      await installToDirs(staged, version, [dir])
       append("本地包安装完成")
     } catch (error: any) {
       append(`✗ ${String(error?.message ?? error)}`)
@@ -663,31 +903,14 @@ function MainView() {
       append("请先添加一个 Rime 用户目录。")
       return
     }
-    const picker: any = (globalThis as any).DocumentPicker
-    if (typeof picker?.pickFiles !== "function") {
-      append("当前 Scripting 版本不支持选择文件，请先升级 Scripting。")
-      return
-    }
     const DialogApi: any = (globalThis as any).Dialog
     try {
-      const picked = await picker.pickFiles({
-        allowsMultipleSelection: false,
-        shouldShowFileExtensions: true,
-      })
-      if (!picked || !picked.length) return
-      const zipName = basename(String(picked[0]))
-      if (!zipName.toLowerCase().endsWith(".zip")) {
-        void DialogApi?.alert?.({
-          title: "只支持 zip",
-          message: "请选择方案包里以 .zip 结尾的文件。",
-          confirmLabel: "知道了",
-        })
-        return
-      }
+      const zip = await pickZip()
+      if (!zip) return
       if (DialogApi?.confirm) {
         const ok = await DialogApi.confirm({
           title: "换方案",
-          message: `会用 ${zipName} 替换「${dir.name}」的旧方案。个人数据会先备份、安装后恢复，输入法词库不受影响。`,
+          message: `会用 ${zip.name} 替换「${dir.name}」的旧方案。个人数据会先备份、安装后恢复，输入法词库不受影响。`,
           confirmLabel: "开始",
           cancelLabel: "取消",
         })
@@ -695,9 +918,9 @@ function MainView() {
       }
       setBusy(true)
       setPercent(0)
-      const version = inferVersionFromName(zipName) || "本地包"
-      const zip = await stageLocalZip(String(picked[0]))
-      await runSwitch(zip, zipName, version)
+      const version = inferVersionFromName(zip.name) || "本地包"
+      const staged = await stageLocalZip(zip.path)
+      await runSwitch(staged, zip.name, version)
     } catch (error: any) {
       append(`✗ 换方案失败：${String(error?.message ?? error)}`)
     } finally {
@@ -796,337 +1019,323 @@ function MainView() {
   useEffect(() => {
     void refreshFiles()
     void refreshBackups()
+    void refreshCloud()
     if (config.autoCheckOnLaunch) void check()
   }, [])
 
-  const homeList = (
-    <List
-      navigationTitle="芝士虎整"
-      navigationBarTitleDisplayMode="inline"
-      listStyle="insetGroup"
-      toolbar={
-        <Toolbar>
-          <ToolbarItem placement="topBarLeading">
-            <Button action={dismiss}>
-              <Image systemName="xmark.circle.fill" foregroundStyle="systemRed" />
-            </Button>
-          </ToolbarItem>
-          <ToolbarItem placement="topBarTrailing">
+  return (
+    <NavigationStack>
+      <List
+        navigationTitle="芝士虎整"
+        navigationBarTitleDisplayMode="inline"
+        listStyle="insetGroup"
+        toolbar={{
+          cancellationAction: (
             <Button
-              title=""
-              systemImage="questionmark.circle"
+              title="关闭"
               action={() => {
-                const DialogApi: any = (globalThis as any).Dialog
-                void DialogApi?.alert?.({
-                  title: "使用说明",
-                  message:
-                    "1. 在「设置」里添加 Rime 目录并命名。\n" +
-                    "2. 点「检查更新」读取方案仓库最新版本。\n" +
-                    "3. 想先确认文件时点「仅预演」，不会写盘。\n" +
-                    "4. 点「一键更新」安装到全部目录，或「安装当前」。\n" +
-                    "5. 安装 / 回滚后按各目录的部署方式重新部署。",
-                  confirmLabel: "知道了",
-                })
+                dismiss()
               }}
             />
-          </ToolbarItem>
-        </Toolbar>
-      }
-    >
-      <Section header={<Text>本地信息</Text>}>
-        <KvRow label="当前目录" value={activeDir?.name ?? "未选择"} />
-        {config.dirs.length === 0 ? (
-          <Text font="caption" foregroundStyle="secondaryLabel">
-            还没有目录，请到「设置」页点「添加目录」。
-          </Text>
-        ) : null}
-        {activeDir ? (
-          <Text font="caption" foregroundStyle="secondaryLabel">
-            {activeDir.path}
-          </Text>
-        ) : null}
-        <KvRow
-          label="已安装"
-          value={installedVersion ? `v${installedVersion}` : "未知"}
-        />
-        <KvRow
-          label="部署方式"
-          value={activeDir ? methodLabel(activeDir.inputMethod) : "-"}
-        />
-      </Section>
+          ),
+          primaryAction: (
+            <Button
+              title="检查"
+              action={() => {
+                void check()
+              }}
+              disabled={busy}
+            />
+          ),
+        }}
+      >
+        <Section header={<Text>当前目录</Text>}>
+          <KvRow label="目录" value={activeDir?.name ?? "未选择"} />
+          {activeDir ? (
+            <Text font="caption" foregroundStyle="secondaryLabel">
+              {activeDir.path}
+            </Text>
+          ) : null}
+          <KvRow
+            label="已安装"
+            value={installedVersion ? `v${installedVersion}` : "未知"}
+          />
+          <KvRow
+            label="部署方式"
+            value={activeDir ? methodLabel(activeDir.inputMethod) : "-"}
+          />
+          <HStack spacing={8}>
+            <Button title="添加目录" action={pickFolder} disabled={busy} />
+            <Button title="手动输入路径" action={addManualPath} disabled={busy} />
+          </HStack>
+        </Section>
 
-      <Section header={<Text>状态</Text>}>
-        <KvRow label="状态" value={status.text} color={status.color} />
-        <KvRow
-          label="远端"
-          value={remote ? `v${remote.version}` : "未检查"}
-        />
-        {progressText ? <Text>{progressText}</Text> : null}
-        {config.verboseLog ? (
-          <Text font="caption" foregroundStyle="secondaryLabel">
-            {log || "等待操作"}
-          </Text>
+        {config.dirs.length > 0 ? (
+          <Section header={<Text>目录管理</Text>}>
+            {config.dirs.map((dir) => (
+              <VStack key={dir.id} spacing={2}>
+                <Text>{dir.id === config.activeId ? `● ${dir.name}` : dir.name}</Text>
+                <Text font="caption" foregroundStyle="secondaryLabel">
+                  {dir.path}
+                </Text>
+                <Text font="caption" foregroundStyle="secondaryLabel">
+                  {`部署：${methodLabel(dir.inputMethod)}${
+                    config.installedVersions[dir.id]
+                      ? ` · 已装 v${config.installedVersions[dir.id]}`
+                      : ""
+                  }`}
+                </Text>
+                <HStack spacing={8}>
+                  <Button
+                    title="设为当前"
+                    action={() => setActive(dir.id)}
+                    disabled={dir.id === config.activeId || busy}
+                  />
+                  <Button title="重命名" action={() => renameDir(dir)} disabled={busy} />
+                </HStack>
+                <HStack spacing={8}>
+                  <Button title="部署方式" action={() => cycleMethod(dir)} disabled={busy} />
+                  <Button title="移除" role="destructive" action={() => removeDir(dir)} disabled={busy} />
+                </HStack>
+              </VStack>
+            ))}
+          </Section>
         ) : null}
-      </Section>
 
-      <Section header={<Text>操作</Text>}>
-        <HStack spacing={8}>
-          <Button title="检查更新" action={check} disabled={busy} />
-          <Button title="仅预演" action={dryRun} disabled={busy || config.dirs.length === 0} />
+        <Section header={<Text>更新</Text>}>
+          <KvRow label="状态" value={status.text} color={status.color} />
+          <KvRow label="远端" value={remote ? `v${remote.version}` : "未检查"} />
+          {progressText ? <Text>{progressText}</Text> : null}
+          <Button
+            title="检查更新"
+            systemImage="arrow.clockwise"
+            action={check}
+            disabled={busy}
+          />
+          <Button
+            title="仅预演"
+            systemImage="eye"
+            action={dryRun}
+            disabled={busy || config.dirs.length === 0}
+          />
           <Button
             title="一键更新"
+            systemImage="arrow.down.circle.fill"
             action={() => install(true)}
             disabled={busy || config.dirs.length === 0}
           />
-        </HStack>
-        <HStack spacing={8}>
           <Button
             title="安装当前"
+            systemImage="square.and.arrow.down"
             action={() => install(false)}
             disabled={busy || !activeDir}
           />
           <Button
-            title="部署当前"
-            action={deployActive}
-            disabled={busy || !activeDir}
-          />
-          <Button
-            title="本地 zip"
+            title="本地 zip 安装"
+            systemImage="doc.zipper"
             action={installLocalZip}
             disabled={busy || !activeDir}
           />
-        </HStack>
-      </Section>
+          <Button
+            title="部署当前"
+            systemImage="arrow.triangle.2.circlepath"
+            action={deployActive}
+            disabled={busy || !activeDir}
+          />
+        </Section>
 
-      <Section header={<Text>远程信息</Text>}>
-        <KvRow label="仓库" value={config.repo} />
-        <KvRow label="版本" value={remote ? `v${remote.version}` : "未检查"} />
-        <KvRow label="资产" value={remote?.chosen.name ?? "-"} />
-        <KvRow
-          label="发布"
-          value={remote?.publishedAt ? remote.publishedAt.slice(0, 10) : "-"}
-        />
-      </Section>
-
-      <Section header={<Text>更新说明</Text>}>
-        <Text font="caption" foregroundStyle="secondaryLabel">
-          {remote?.body ? releaseSnippet(remote.body) : "检查更新后显示"}
-        </Text>
-      </Section>
-    </List>
-  )
-
-  const settingsList = (
-    <List
-      navigationTitle="设置"
-      navigationBarTitleDisplayMode="inline"
-      listStyle="insetGroup"
-    >
-      <Section header={<Text>目录</Text>}>
-        {config.dirs.length === 0 ? (
-          <Text foregroundStyle="secondaryLabel">
-            还没有目录，点下面的「添加目录」，在「文件」里选择 Rime 用户目录。
-          </Text>
-        ) : null}
-        {config.dirs.map((dir) => (
-          <VStack key={dir.id} spacing={2}>
-            <Text>{dir.id === config.activeId ? `● ${dir.name}` : dir.name}</Text>
+        <Section header={<Text>云同步（WebDAV）</Text>}>
+          <TextField
+            title="服务器地址"
+            value={config.syncUrl}
+            onChanged={(value: string) => setConfig({ ...config, syncUrl: value })}
+          />
+          <TextField
+            title="用户名"
+            value={config.syncUser}
+            onChanged={(value: string) => setConfig({ ...config, syncUser: value })}
+          />
+          <SecureField
+            title="密码 / 应用密码"
+            value={password}
+            onChanged={setPassword}
+          />
+          <TextField
+            title="本机名称"
+            value={config.deviceName}
+            onChanged={(value: string) => setConfig({ ...config, deviceName: value })}
+          />
+          <Button title="保存配置" action={saveSyncConfig} disabled={busy} />
+          <HStack spacing={8}>
+            <Button title="上传本机" action={uploadCloud} disabled={busy || !activeDir} />
+            <Button title="下载云端" action={downloadCloud} disabled={busy || !activeDir} />
+          </HStack>
+          <Button
+            title="刷新云端清单"
+            action={refreshCloudList}
+            disabled={busy}
+          />
+          <KvRow
+            label="同步库"
+            value={`${cloudFiles.length} 个文件 · ${cloudDevices} 台设备`}
+          />
+          {cloudFiles.length === 0 ? (
             <Text font="caption" foregroundStyle="secondaryLabel">
-              {dir.path}
+              还没有云端文件。填好地址后先「上传本机」。
             </Text>
-            <Text font="caption" foregroundStyle="secondaryLabel">
-              {`部署：${methodLabel(dir.inputMethod)}${
-                config.installedVersions[dir.id]
-                  ? ` · 已装 v${config.installedVersions[dir.id]}`
-                  : ""
-              }`}
-            </Text>
-            <HStack spacing={8}>
-              <Button
-                title="设为当前"
-                action={() => setActive(dir.id)}
-                disabled={dir.id === config.activeId || busy}
-              />
-              <Button title="重命名" action={() => renameDir(dir)} disabled={busy} />
-              <Button title="部署方式" action={() => cycleMethod(dir)} disabled={busy} />
-              <Button title="移除" action={() => removeDir(dir)} disabled={busy} />
-            </HStack>
-          </VStack>
-        ))}
-        <Button title="添加目录" action={pickFolder} disabled={busy} />
-        <Button title="手动输入路径" action={addManualPath} disabled={busy} />
-      </Section>
-
-      <Section header={<Text>更新来源</Text>}>
-        <KvRow label="仓库" value={config.repo} />
-        <Button title="修改仓库" action={editRepo} disabled={busy} />
-        <Button
-          title="恢复默认仓库"
-          action={() => {
-            updateConfig({ ...config, repo: DEFAULT_REPO, assetName: "" })
-            setRemote(null)
-            append(`方案仓库恢复为 ${DEFAULT_REPO}`)
-          }}
-          disabled={busy || config.repo === DEFAULT_REPO}
-        />
-        <KvRow label="资产" value={config.assetName || "自动选择（优先增量包）"} />
-        {remote && remote.assets.length > 1
-          ? remote.assets.map((asset) => (
-              <HStack key={asset.name}>
-                <Text font="caption">{asset.name}</Text>
+          ) : null}
+          {cloudFiles.slice(0, 40).map((file) => (
+            <VStack key={file.path} spacing={2}>
+              <Text font="caption">{file.path}</Text>
+              <HStack>
+                <Text font="caption" foregroundStyle="secondaryLabel">
+                  {`${file.by_name || file.by} · ${formatTime(file.at)}`}
+                </Text>
                 <Spacer />
                 <Button
-                  title={config.assetName === asset.name ? "已选" : "选用"}
-                  action={() => selectAsset(asset)}
-                  disabled={busy || config.assetName === asset.name}
+                  title="删除"
+                  role="destructive"
+                  action={() => removeCloudFile(file)}
+                  disabled={busy}
                 />
               </HStack>
-            ))
-          : <Text font="caption" foregroundStyle="secondaryLabel">
-              先在主页「检查更新」，这里会列出可选的资产。
-            </Text>}
-      </Section>
-
-      <Section header={<Text>换方案</Text>}>
-        <Text font="caption" foregroundStyle="secondaryLabel">
-          先备份个人数据，再清理旧方案运行文件，安装后把个人数据补回去，最后部署。
-        </Text>
-        <Button
-          title="从本地 zip 换方案"
-          action={switchFromLocalZip}
-          disabled={busy || !activeDir}
-        />
-        <Button
-          title="从当前仓库换方案"
-          action={switchFromRelease}
-          disabled={busy || !activeDir}
-        />
-      </Section>
-
-      <Section header={<Text>备份与回滚</Text>}>
-        <KvRow
-          label="当前目录"
-          value={activeDir ? `${backups.length} 份快照` : "未选择"}
-        />
-        {backups.length === 0 ? (
-          <Text font="caption" foregroundStyle="secondaryLabel">
-            还没有快照。更新或从本地 zip 安装后会自动生成。
-          </Text>
-        ) : null}
-        {backups.map((entry) => (
-          <VStack key={entry.name} spacing={2}>
-            <Text>{entry.name}</Text>
+            </VStack>
+          ))}
+          {cloudFiles.length > 40 ? (
             <Text font="caption" foregroundStyle="secondaryLabel">
-              {`${entry.version ? `v${entry.version} · ` : ""}${entry.files} 个文件`}
+              {`还有 ${cloudFiles.length - 40} 个文件未显示`}
             </Text>
-            <HStack spacing={8}>
-              <Button title="回滚" action={() => rollback(entry)} disabled={busy} />
-              <Button title="删除" action={() => deleteBackup(entry)} disabled={busy} />
-            </HStack>
-          </VStack>
-        ))}
-        <Button
-          title="刷新备份列表"
-          action={() => refreshBackups()}
-          disabled={busy || !activeDir}
-        />
-      </Section>
+          ) : null}
+        </Section>
 
-      <Section header={<Text>更新设置</Text>}>
-        <Toggle
-          title="启动时自动检查"
-          value={config.autoCheckOnLaunch}
-          onChanged={(value: boolean) =>
-            updateConfig({ ...config, autoCheckOnLaunch: value })
-          }
-        />
-        <Toggle
-          title="显示详细日志"
-          value={config.verboseLog}
-          onChanged={(value: boolean) =>
-            updateConfig({ ...config, verboseLog: value })
-          }
-        />
-        <Button title="清空日志" action={() => setLog("")} />
-      </Section>
+        <Section header={<Text>备份与回滚</Text>}>
+          <KvRow
+            label="当前目录"
+            value={activeDir ? `${backups.length} 份快照` : "未选择"}
+          />
+          {backups.length === 0 ? (
+            <Text font="caption" foregroundStyle="secondaryLabel">
+              还没有快照。更新或从本地 zip 安装后会自动生成。
+            </Text>
+          ) : null}
+          {backups.map((entry) => (
+            <VStack key={entry.name} spacing={2}>
+              <Text>{entry.name}</Text>
+              <Text font="caption" foregroundStyle="secondaryLabel">
+                {`${entry.version ? `v${entry.version} · ` : ""}${entry.files} 个文件`}
+              </Text>
+              <HStack spacing={8}>
+                <Button title="回滚" action={() => rollback(entry)} disabled={busy} />
+                <Button
+                  title="删除"
+                  role="destructive"
+                  action={() => deleteBackup(entry)}
+                  disabled={busy}
+                />
+              </HStack>
+            </VStack>
+          ))}
+          <Button
+            title="刷新备份列表"
+            action={() => refreshBackups()}
+            disabled={busy || !activeDir}
+          />
+        </Section>
 
-      <Section header={<Text>GitHub</Text>}>
-        <KvRow label="Token" value={config.token ? "已设置" : "未设置"} />
-        <Button title="设置 Token" action={editToken} />
-        <Button
-          title="清除 Token"
-          action={() => updateConfig({ ...config, token: "" })}
-          disabled={!config.token}
-        />
-      </Section>
+        <Section header={<Text>换方案</Text>}>
+          <Text font="caption" foregroundStyle="secondaryLabel">
+            先备份个人数据，再清理旧方案运行文件，安装后把个人数据补回去，最后部署。
+          </Text>
+          <Button
+            title="从本地 zip 换方案"
+            action={switchFromLocalZip}
+            disabled={busy || !activeDir}
+          />
+          <Button
+            title="从当前仓库换方案"
+            action={switchFromRelease}
+            disabled={busy || !activeDir}
+          />
+        </Section>
 
-      <Section header={<Text>关于</Text>}>
-        <KvRow label="脚本版本" value="1.1.0" />
-        <KvRow label="方案仓库" value={config.repo} />
-        <KvRow label="快照目录" value={BACKUP_DIR} />
-      </Section>
-    </List>
-  )
+        <Section header={<Text>更新来源</Text>}>
+          <KvRow label="仓库" value={config.repo} />
+          <Button title="修改仓库" action={editRepo} disabled={busy} />
+          <Button
+            title="恢复默认仓库"
+            action={() => {
+              updateConfig({ ...config, repo: DEFAULT_REPO, assetName: "" })
+              setRemote(null)
+              append(`方案仓库恢复为 ${DEFAULT_REPO}`)
+            }}
+            disabled={busy || config.repo === DEFAULT_REPO}
+          />
+          <KvRow label="资产" value={config.assetName || "自动选择（优先增量包）"} />
+          {remote
+            ? remote.assets.length > 1
+              ? remote.assets.map((asset) => (
+                  <HStack key={asset.name}>
+                    <Text font="caption">{asset.name}</Text>
+                    <Spacer />
+                    <Button
+                      title={config.assetName === asset.name ? "已选" : "选用"}
+                      action={() => selectAsset(asset)}
+                      disabled={busy || config.assetName === asset.name}
+                    />
+                  </HStack>
+                ))
+              : null
+            : null}
+          <Text font="caption" foregroundStyle="secondaryLabel">
+            {remote?.body ? releaseSnippet(remote.body) : "检查更新后显示更新说明"}
+          </Text>
+        </Section>
 
-  const filesList = (
-    <List
-      navigationTitle="文件"
-      navigationBarTitleDisplayMode="inline"
-      listStyle="insetGroup"
-    >
-      <Section header={<Text>当前目录</Text>}>
-        <Text>{activeDir?.path ?? "未选择目录"}</Text>
-        <Button title="刷新目录" action={refreshFiles} />
-      </Section>
-      <Section header={<Text>目录内容</Text>}>
-        {files.length === 0 ? (
-          <Text foregroundStyle="secondaryLabel">目录为空或未选择目录</Text>
-        ) : (
-          files.map((name) => <Text key={name}>{name}</Text>)
-        )}
-      </Section>
-    </List>
-  )
+        <Section header={<Text>设置</Text>}>
+          <Toggle
+            title="启动时自动检查"
+            value={config.autoCheckOnLaunch}
+            onChanged={(value: boolean) =>
+              updateConfig({ ...config, autoCheckOnLaunch: value })
+            }
+          />
+          <Toggle
+            title="显示详细日志"
+            value={config.verboseLog}
+            onChanged={(value: boolean) =>
+              updateConfig({ ...config, verboseLog: value })
+            }
+          />
+          <KvRow label="Token" value={config.token ? "已设置" : "未设置"} />
+          <Button title="设置 Token" action={editToken} />
+          <Button
+            title="清除 Token"
+            action={() => updateConfig({ ...config, token: "" })}
+            disabled={!config.token}
+          />
+          <Button title="清空日志" action={() => setLog("")} />
+          <KvRow label="脚本版本" value="1.2.0" />
+          <KvRow label="快照目录" value={BACKUP_DIR} />
+        </Section>
 
-  return (
-    <TabView>
-      <VStack
-        tabItem={
-          <>
-            <Image systemName="house.fill" />
-            <Text>主页</Text>
-          </>
-        }
-        tag={1}
-        frame={{ maxWidth: "infinity", maxHeight: "infinity" }}
-      >
-        <NavigationStack>{homeList}</NavigationStack>
-      </VStack>
-      <VStack
-        tabItem={
-          <>
-            <Image systemName="folder.fill" />
-            <Text>文件</Text>
-          </>
-        }
-        tag={2}
-        frame={{ maxWidth: "infinity", maxHeight: "infinity" }}
-      >
-        <NavigationStack>{filesList}</NavigationStack>
-      </VStack>
-      <VStack
-        tabItem={
-          <>
-            <Image systemName="gearshape.fill" />
-            <Text>设置</Text>
-          </>
-        }
-        tag={3}
-        frame={{ maxWidth: "infinity", maxHeight: "infinity" }}
-      >
-        <NavigationStack>{settingsList}</NavigationStack>
-      </VStack>
-    </TabView>
+        <Section header={<Text>日志</Text>}>
+          {config.verboseLog ? (
+            <Text font="caption" foregroundStyle="secondaryLabel">
+              {recentLog || "等待操作"}
+            </Text>
+          ) : (
+            <Text font="caption" foregroundStyle="secondaryLabel">
+              已关闭详细日志
+            </Text>
+          )}
+          {config.dirs.length > 0 ? (
+            <Text font="caption" foregroundStyle="secondaryLabel">
+              {`目录内 ${files.length} 项`}
+            </Text>
+          ) : null}
+        </Section>
+      </List>
+    </NavigationStack>
   )
 }
 

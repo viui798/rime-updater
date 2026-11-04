@@ -16,7 +16,7 @@ Rime 用户目录 → 请求输入法重新部署。
 | 换方案向导（备份 → 清理 → 安装 → 恢复 → 部署） | ✅ |
 | 任意 GitHub 方案（改仓库 + 选资产） | ✅ |
 | 多目录、命名、重命名、部署方式、移除 | ✅ |
-| 云同步（WebDAV）与同步库管理 | ⏳ 计划中（需确认 Scripting 的二进制上传能力） |
+| 云同步（WebDAV：上传本机 / 下载云端 / 删除云端文件） | ✅ |
 
 ## 1. 安装 Scripting
 
@@ -89,19 +89,43 @@ Scripting 会读取 `script.json`，把 `index.tsx` 与 `utils/` 一起导入。
 `viui798/viui-tiger-sentense`、`iDvel/rime-ice`。检查更新后，如果 Release 里有多个
 zip，会在设置页列出资产，可点「选用」指定下载哪一个；默认优先 `-update.zip`。
 
-## 8. 代码结构
+## 8. 云同步（WebDAV）
+
+界面是单页 List（与参考的 SyncClipboard 脚本一致），「云同步」区填：
+
+- 服务器地址（例如坚果云 `https://dav.jianguoyun.com/dav`）
+- 用户名
+- 密码 / 应用密码（存在 Scripting 的 Keychain）
+- 本机名称
+
+点「保存配置」后：
+
+- **上传本机**：把当前目录的个人数据（`*.custom.yaml`、`*.userdb`、lua 统计等，
+  与桌面端 `collectUserData` 同一套白名单）上传到
+  `CheeseTigerSync/<kind>/files/<相对路径>`，并更新同目录 `manifest.json`；
+  `*.userdb` 目录会展开成具体文件逐个上传。
+- **下载云端**：读取 `manifest.json`，先备份本机个人数据，再逐个下载写回目录，
+  成功后自动部署。
+- **刷新云端清单**：列出云端文件与来源设备，可单个删除（只删云端，本机不动）。
+
+`<kind>` 由当前目录的部署方式决定：仓输入法 `hamster`、元书 `hamster3`、手动 `manual`，
+与桌面端共用同一套云端结构。
+
+## 9. 代码结构
 
 | 文件 | 作用 |
 |---|---|
 | `script.json` | Scripting 脚本元信息、图标、远程更新地址 |
-| `index.tsx` | 界面：主页 / 文件 / 设置三页，检查、预演、更新、本地 zip、换方案、备份回滚 |
+| `index.tsx` | 单页界面：目录、更新、云同步、备份回滚、换方案、更新来源、设置 |
 | `utils/github.ts` | GitHub API：任意仓库、资产选择、版本解析 |
 | `utils/install.ts` | 下载、解压、去 `update/` 前缀、过滤、快照与清单、预演、本地 zip、回滚 |
 | `utils/switch_scheme.ts` | 换方案：收集 / 备份 / 清理 / 恢复个人数据 |
+| `utils/webdav.ts` | WebDAV：MKCOL / PUT / GET / DELETE + Basic Auth，支持二进制 Data |
+| `utils/sync_service.ts` | 同步库清单、上传 / 下载 / 删除云端文件 |
 | `utils/deploy.ts` | 用 `hamster://` / `hamster3://` 请求部署 |
 | `utils/runtime.tsx` 等 | 从 Scripting 社区项目复用的文件与下载兼容层（MIT） |
 
-## 9. 常见问题
+## 10. 常见问题
 
 - **选不了目录 / 提示不支持**：Scripting 版本太旧，升级后再试。
 - **GitHub 限流**：匿名 API 每小时 60 次（按出口 IP）。可在设置里填 Token。
@@ -110,13 +134,12 @@ zip，会在设置页列出资产，可点「选用」指定下载哪一个；�
   浏览 `我的 iPhone/Hamster` 确认目录存在。
 - **安装后没变化**：确认部署方式选对；元书与仓的部署 URL 不同。
 
-## 10. 限制
+## 11. 限制
 
 - 不会执行 `DELTA.json` 里的删除列表（桌面 / Android 客户端会执行）。
   发版删除文件时，iOS 需要手动清理一次。
 - 不写 `.cheese-tiger-version`，安装版本记录在 Scripting 的本地存储里。
-- 云同步（WebDAV）尚未接入，暂时用桌面 / Android 端同步；接入后会共用同一云端结构
-  `CheeseTigerSync/<kind>/files/`。
+- 云同步只做批量上传 / 下载 / 删除；暂不支持在 App 里在线编辑云端文本文件。
 - 只在 iOS 上运行；桌面端请用 `app/` 里的 Flutter 客户端。
 
 ## 致谢
