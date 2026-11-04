@@ -3,6 +3,8 @@
 给 [芝士虎整](https://github.com/viui798/viui-tiger-sentense)（虎码 Rime 整合包）用的多设备一键更新脚本。
 只用 Python 3 标准库，不需要安装依赖。
 
+进度、设计决策与后续计划见 [AGENTS.md](AGENTS.md)。
+
 ## 它解决什么
 
 方案包每次更新，都要在每台设备上手动解压、覆盖、重新部署；设备一多就容易漏文件，
