@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 
 import 'core/android_platform.dart';
+import 'core/android_profiles.dart';
 import 'core/deployer.dart';
 import 'core/github_client.dart';
 import 'core/local_package.dart';
@@ -48,7 +49,10 @@ class HomePage extends StatefulWidget {
   State<HomePage> createState() => _HomePageState();
 }
 
-class _HomePageState extends State<HomePage> {
+class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
+  final Map<String, Map<String, dynamic>> _androidProfiles = {};
+  List<String> _androidUnavailable = [];
+  bool _discoveringAndroid = false;
   Settings _settings = const Settings();
   List<Profile> _profiles = const [];
   final Set<String> _selected = {};
@@ -77,6 +81,7 @@ class _HomePageState extends State<HomePage> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _settings = loadSettings();
     _refreshProfiles();
     _refreshBackups();
@@ -124,16 +129,118 @@ class _HomePageState extends State<HomePage> {
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && Platform.isAndroid && !_busy) {
+      _refreshProfiles();
+      _refreshBackups();
+    }
+  }
+
+  Future<void> _discoverAndroid() async {
+    if (_discoveringAndroid) return;
+    _discoveringAndroid = true;
+    try {
+      final status = await shizukuStatus();
+      if (status['granted'] != true) {
+        if (mounted) {
+          setState(() {
+            _androidProfiles.clear();
+            _androidUnavailable = [];
+          });
+        }
+        return;
+      }
+      final found = await discoverAndroidProfiles();
+      if (!mounted) return;
+      setState(() {
+        _androidProfiles.clear();
+        _androidUnavailable = [];
+        for (final item in found) {
+          if (item['found'] == true) {
+            _androidProfiles[item['path'] as String] = item;
+          } else {
+            _androidUnavailable.add(item['label'] as String);
+          }
+        }
+      });
+      _refreshProfiles();
+      _refreshBackups();
+    } catch (error) {
+      if (mounted) _setStatus('Shizuku 识别失败：$error', error: true);
+    } finally {
+      _discoveringAndroid = false;
+    }
+  }
+
+  Future<void> _openAndroidAccess() async {
+    final status = await shizukuStatus();
+    if (!mounted) return;
+    final enable = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+              title: const Text('Android 输入法访问'),
+              content: SingleChildScrollView(
+                  child: Text('公共目录：授权「所有文件访问」后可直接更新，点「+」可填写自定义目录。\n\n'
+                      'Shizuku：${status['running'] == true ? (status['granted'] == true ? '已授权' : '正在运行，尚未授权') : '尚未启动，请先在 Shizuku 中启动服务'}。'
+                      '授权后可识别和管理 Android/data 下的 Rime 目录。\n\n'
+                      '应用内部私有目录（/data/user/0）无法通过普通 Shizuku 访问，请在输入法中使用公共用户目录或导入导出功能。'
+                      '${_androidUnavailable.isEmpty ? '' : '\n\n未找到可访问目录：${_androidUnavailable.join('、')}。可能使用公共目录或内部私有目录。'}')),
+              actions: [
+                TextButton(
+                    onPressed: () {
+                      Navigator.pop(context);
+                      requestAllFilesAccess();
+                    },
+                    child: const Text('文件权限')),
+                TextButton(
+                    onPressed: () => Navigator.pop(context, false),
+                    child: const Text('关闭')),
+                FilledButton(
+                    onPressed: () => Navigator.pop(context, true),
+                    child: const Text('连接 Shizuku')),
+              ],
+            ));
+    if (enable != true) return;
+    try {
+      if (await requestShizuku()) {
+        await _discoverAndroid();
+      } else if (mounted) {
+        _setStatus('未授予 Shizuku 权限');
+      }
+    } catch (error) {
+      if (mounted) _setStatus('$error', error: true);
+    }
+  }
+
+  String _profileVersion(Profile profile) =>
+      _androidProfiles[profile.path]?['version'] as String? ??
+      rime.readLocalVersion(profile.path);
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _logScroll.dispose();
     super.dispose();
   }
 
   void _refreshProfiles() {
+    if (Platform.isAndroid && !_discoveringAndroid) _discoverAndroid();
     final profiles = rime.detectProfiles(hidden: _settings.hiddenDirs);
+    for (final item in _androidProfiles.values) {
+      final path = item['path'] as String;
+      if (_settings.hiddenDirs.contains(path)) continue;
+      profiles.removeWhere((profile) => profile.path == path);
+      profiles.add(Profile(
+          label: '${item['label']} · Shizuku',
+          path: path,
+          kind: (item['package'] as String).contains('fcitx')
+              ? 'fcitx5'
+              : 'trime'));
+    }
     for (final custom in rime.profilesFromPaths(
       _settings.customDirs,
       names: _settings.customNames,
+      allowUnrecognized: true,
     )) {
       if (!profiles.any((profile) => profile.path == custom.path)) {
         profiles.add(custom);
@@ -153,7 +260,38 @@ class _HomePageState extends State<HomePage> {
 
   Future<void> _addRimeDir() async {
     if (_busy) return;
-    final selected = await pickDirectory();
+    String? selected;
+    if (Platform.isAndroid) {
+      final controller = TextEditingController(text: '/storage/emulated/0/');
+      selected = await showDialog<String>(
+          context: context,
+          builder: (context) => AlertDialog(
+                title: const Text('添加 Rime 公共目录'),
+                content: TextField(
+                    controller: controller,
+                    autofocus: true,
+                    decoration: const InputDecoration(
+                        labelText: '用户目录路径', helperText: '填写输入法设置中的公共用户目录')),
+                actions: [
+                  TextButton(
+                      onPressed: () => Navigator.pop(context),
+                      child: const Text('取消')),
+                  FilledButton(
+                      onPressed: () =>
+                          Navigator.pop(context, controller.text.trim()),
+                      child: const Text('添加'))
+                ],
+              ));
+      // The dialog route may still be animating, so dispose after its widgets unmount.
+      Future<void>.delayed(const Duration(seconds: 1), controller.dispose);
+      if (selected != null &&
+          (!p.isAbsolute(selected) || !Directory(selected).existsSync())) {
+        _setStatus('目录不存在或无法访问；Android/data 目录请连接 Shizuku', error: true);
+        return;
+      }
+    } else {
+      selected = await pickDirectory();
+    }
     if (selected == null) return;
     final normalized = p.normalize(selected);
 
@@ -244,9 +382,7 @@ class _HomePageState extends State<HomePage> {
     setState(() {
       _settings = updated;
       _selected.remove(profile.path);
-      _profiles = _profiles
-          .where((item) => item.path != profile.path)
-          .toList();
+      _profiles = _profiles.where((item) => item.path != profile.path).toList();
     });
     _refreshProfiles();
     _refreshBackups();
@@ -256,7 +392,18 @@ class _HomePageState extends State<HomePage> {
   void _refreshBackups() {
     final backups = <String, List<BackupInfo>>{};
     for (final profile in _profiles) {
-      backups[profile.path] = rime.listBackups(profile.path);
+      final remote = _androidProfiles[profile.path];
+      backups[profile.path] = remote == null
+          ? rime.listBackups(profile.path)
+          : (remote['backups'] as List)
+              .map((item) => BackupInfo(
+                  stamp: item['stamp'] as String,
+                  version: item['version'] as String,
+                  previousVersion: item['previous'] as String,
+                  overwritten: item['overwritten'] as int,
+                  created: item['created'] as int,
+                  deleted: item['deleted'] as int))
+              .toList();
     }
     setState(() {
       _backups
@@ -305,7 +452,7 @@ class _HomePageState extends State<HomePage> {
         _remoteDelta = release.isDelta;
       });
       final outdated = _profiles.any((profile) {
-        final current = rime.readLocalVersion(profile.path);
+        final current = _profileVersion(profile);
         return current.isNotEmpty && current != release.version;
       });
       _logLine('远端最新：v${release.version}（${release.assetName}）'
@@ -340,8 +487,7 @@ class _HomePageState extends State<HomePage> {
       return;
     }
     if (!dryRun) {
-      final version =
-          _remoteVersion.isEmpty ? '远端最新版本' : 'v$_remoteVersion';
+      final version = _remoteVersion.isEmpty ? '远端最新版本' : 'v$_remoteVersion';
       final confirmed = await showDialog<bool>(
         context: context,
         builder: (context) => AlertDialog(
@@ -395,27 +541,32 @@ class _HomePageState extends State<HomePage> {
         final base = 55 + index * 45 ~/ picked.length;
         final span = 45 ~/ picked.length;
 
-        final stats = applyZip(
-          zipPath: package.zipPath,
-          target: profile.path,
-          version: package.version,
-          dryRun: dryRun,
-          snapshot: _settings.snapshot,
-          log: _logLine,
-          onFile: (done, total) {
-            if (!mounted) return;
-            setState(() {
-              _progress = (base + (total > 0 ? span * done ~/ total : span)) /
-                  100;
-            });
-          },
-        );
+        final stats = await withProfileDirectory(
+            profile,
+            (local) => applyZip(
+                  zipPath: package.zipPath,
+                  target: local.path,
+                  version: package.version,
+                  dryRun: dryRun,
+                  snapshot: _settings.snapshot,
+                  log: _logLine,
+                  onFile: (done, total) {
+                    if (!mounted) return;
+                    setState(() {
+                      _progress =
+                          (base + (total > 0 ? span * done ~/ total : span)) /
+                              100;
+                    });
+                  },
+                ),
+            readOnly: dryRun);
         if (stats.backupStamp != null) {
           _logLine('  已创建备份 ${stats.backupStamp}');
         }
 
         if (_settings.deploy && !dryRun) {
-          await deployProfile(profile, restart: _settings.restart, log: _logLine);
+          await deployProfile(profile,
+              restart: _settings.restart, log: _logLine);
         }
       }
 
@@ -465,7 +616,10 @@ class _HomePageState extends State<HomePage> {
     _logLine('');
     _logLine('[${profile.label}] ${profile.path}');
     try {
-      rollback(target: profile.path, stamp: backup.stamp, log: _logLine);
+      await withProfileDirectory(
+          profile,
+          (local) =>
+              rollback(target: local.path, stamp: backup.stamp, log: _logLine));
       if (_settings.deploy) {
         await deployProfile(profile, restart: _settings.restart, log: _logLine);
       }
@@ -513,21 +667,24 @@ class _HomePageState extends State<HomePage> {
         final base = index * 100 ~/ picked.length;
         final span = 100 ~/ picked.length;
 
-        final stats = applyZip(
-          zipPath: options.path,
-          target: profile.path,
-          version: options.version,
-          dryRun: false,
-          snapshot: _settings.snapshot,
-          log: _logLine,
-          onFile: (done, total) {
-            if (!mounted) return;
-            setState(() {
-              _progress =
-                  (base + (total > 0 ? span * done ~/ total : span)) / 100;
-            });
-          },
-        );
+        final stats = await withProfileDirectory(
+            profile,
+            (local) => applyZip(
+                  zipPath: options.path,
+                  target: local.path,
+                  version: options.version,
+                  dryRun: false,
+                  snapshot: _settings.snapshot,
+                  log: _logLine,
+                  onFile: (done, total) {
+                    if (!mounted) return;
+                    setState(() {
+                      _progress =
+                          (base + (total > 0 ? span * done ~/ total : span)) /
+                              100;
+                    });
+                  },
+                ));
         if (stats.backupStamp != null) {
           _logLine('  已创建备份 ${stats.backupStamp}');
         }
@@ -586,28 +743,31 @@ class _HomePageState extends State<HomePage> {
         final span = 100 ~/ picked.length;
 
         try {
-          final backup = backupUserData(
-            profile.path,
-            label: profile.label,
-            log: _logLine,
-          );
-          cleanScheme(profile.path, log: _logLine);
-          final stats = applyZip(
-            zipPath: options.path,
-            target: profile.path,
-            version: options.version,
-            dryRun: false,
-            snapshot: false,
-            log: _logLine,
-            onFile: (done, total) {
-              if (!mounted) return;
-              setState(() {
-                _progress =
-                    (base + (total > 0 ? span * done ~/ total : span)) / 100;
-              });
-            },
-          );
-          restoreUserData(backup, log: _logLine);
+          final stats = await withProfileDirectory(profile, (local) {
+            final backup = backupUserData(
+              local.path,
+              label: profile.label,
+              log: _logLine,
+            );
+            cleanScheme(local.path, log: _logLine);
+            final stats = applyZip(
+              zipPath: options.path,
+              target: local.path,
+              version: options.version,
+              dryRun: false,
+              snapshot: false,
+              log: _logLine,
+              onFile: (done, total) {
+                if (!mounted) return;
+                setState(() {
+                  _progress =
+                      (base + (total > 0 ? span * done ~/ total : span)) / 100;
+                });
+              },
+            );
+            restoreUserData(backup, log: _logLine);
+            return stats;
+          });
           if (_settings.deploy) {
             await deployProfile(
               profile,
@@ -708,12 +868,21 @@ class _HomePageState extends State<HomePage> {
     );
     if (confirmed != true) return;
 
-    var removed = 0;
-    for (final profile in _profiles) {
-      removed += rime.clearBackups(profile.path);
+    setState(() => _busy = true);
+    try {
+      var removed = 0;
+      for (final profile in _profiles) {
+        removed += await withProfileDirectory(
+            profile, (local) => rime.clearBackups(local.path));
+      }
+      _refreshProfiles();
+      _refreshBackups();
+      _setStatus('已清理 $removed 份备份');
+    } catch (error) {
+      _setStatus('清理备份失败：$error', error: true);
+    } finally {
+      if (mounted) setState(() => _busy = false);
     }
-    _refreshBackups();
-    _setStatus('已清理 $removed 份备份');
   }
 
   Future<void> _installFromGithub() async {
@@ -780,21 +949,24 @@ class _HomePageState extends State<HomePage> {
         final base = 55 + index * 45 ~/ picked.length;
         final span = 45 ~/ picked.length;
 
-        final stats = applyZip(
-          zipPath: cachePath,
-          target: profile.path,
-          version: options.version,
-          dryRun: false,
-          snapshot: _settings.snapshot,
-          log: _logLine,
-          onFile: (done, total) {
-            if (!mounted) return;
-            setState(() {
-              _progress =
-                  (base + (total > 0 ? span * done ~/ total : span)) / 100;
-            });
-          },
-        );
+        final stats = await withProfileDirectory(
+            profile,
+            (local) => applyZip(
+                  zipPath: cachePath,
+                  target: local.path,
+                  version: options.version,
+                  dryRun: false,
+                  snapshot: _settings.snapshot,
+                  log: _logLine,
+                  onFile: (done, total) {
+                    if (!mounted) return;
+                    setState(() {
+                      _progress =
+                          (base + (total > 0 ? span * done ~/ total : span)) /
+                              100;
+                    });
+                  },
+                ));
         if (stats.backupStamp != null) {
           _logLine('  已创建备份 ${stats.backupStamp}');
         }
@@ -829,9 +1001,8 @@ class _HomePageState extends State<HomePage> {
       return;
     }
 
-    final picked = _profiles
-        .where((profile) => targets.contains(profile.path))
-        .toList();
+    final picked =
+        _profiles.where((profile) => targets.contains(profile.path)).toList();
     final result = await showDialog<Settings>(
       context: context,
       barrierDismissible: false,
@@ -855,9 +1026,8 @@ class _HomePageState extends State<HomePage> {
       _setStatus('请先勾选至少一个设备', error: true);
       return;
     }
-    final picked = _profiles
-        .where((profile) => targets.contains(profile.path))
-        .toList();
+    final picked =
+        _profiles.where((profile) => targets.contains(profile.path)).toList();
     if (!mounted) return;
     await showDialog<void>(
       context: context,
@@ -1057,14 +1227,16 @@ class _HomePageState extends State<HomePage> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Row(children: [
-          Expanded(child: OutlinedButton.icon(
+          Expanded(
+              child: OutlinedButton.icon(
             style: style,
             onPressed: _busy ? null : _check,
             icon: const Icon(Icons.refresh_rounded, size: 18),
             label: const Text('检查更新'),
           )),
           const SizedBox(width: 10),
-          Expanded(child: OutlinedButton.icon(
+          Expanded(
+              child: OutlinedButton.icon(
             style: style,
             onPressed: _busy ? null : () => _runUpdate(dryRun: true),
             icon: const Icon(Icons.play_circle_outline, size: 18),
@@ -1224,7 +1396,7 @@ class _HomePageState extends State<HomePage> {
   int _countOutdated() {
     if (_remoteVersion.isEmpty) return 0;
     return _profiles.where((profile) {
-      final current = rime.readLocalVersion(profile.path);
+      final current = _profileVersion(profile);
       return current.isNotEmpty && current != _remoteVersion;
     }).length;
   }
@@ -1392,19 +1564,35 @@ class _HomePageState extends State<HomePage> {
                   ),
                 ],
                 const Spacer(),
-                if (!Platform.isAndroid)
+                if (Platform.isAndroid)
                   IconButton(
-                    tooltip: '添加 Rime 目录',
-                    onPressed: _busy ? null : _addRimeDir,
-                    icon: const Icon(Icons.add, size: 18),
-                    visualDensity: VisualDensity.compact,
-                    style: IconButton.styleFrom(
-                      side: BorderSide(color: theme.colorScheme.outlineVariant),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(9),
-                      ),
+                      tooltip: 'Android 权限与 Shizuku',
+                      onPressed: _busy ? null : _openAndroidAccess,
+                      icon: const Icon(Icons.admin_panel_settings_outlined,
+                          size: 18),
+                      visualDensity: VisualDensity.compact),
+                IconButton(
+                    tooltip: '重新识别目录',
+                    onPressed: _busy
+                        ? null
+                        : () {
+                            _refreshProfiles();
+                            _refreshBackups();
+                          },
+                    icon: const Icon(Icons.refresh, size: 18),
+                    visualDensity: VisualDensity.compact),
+                IconButton(
+                  tooltip: '添加 Rime 目录',
+                  onPressed: _busy ? null : _addRimeDir,
+                  icon: const Icon(Icons.add, size: 18),
+                  visualDensity: VisualDensity.compact,
+                  style: IconButton.styleFrom(
+                    side: BorderSide(color: theme.colorScheme.outlineVariant),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(9),
                     ),
                   ),
+                ),
               ],
             ),
           ),
@@ -1414,7 +1602,9 @@ class _HomePageState extends State<HomePage> {
                     child: Padding(
                       padding: const EdgeInsets.all(16),
                       child: Text(
-                        '没有识别到 Rime 用户目录，点右上角「+」手动添加',
+                        Platform.isAndroid
+                            ? '没有识别到 Rime 用户目录。点盾牌连接 Shizuku，或点「+」添加公共目录。'
+                            : '没有识别到 Rime 用户目录，点右上角「+」手动添加',
                         textAlign: TextAlign.center,
                         style: theme.textTheme.bodySmall?.copyWith(
                           color: theme.colorScheme.onSurfaceVariant,
@@ -1441,7 +1631,7 @@ class _HomePageState extends State<HomePage> {
   }
 
   Widget _buildDeviceRow(ThemeData theme, Profile profile) {
-    final current = rime.readLocalVersion(profile.path);
+    final current = _profileVersion(profile);
     final selected = _selected.contains(profile.path);
     final radius = BorderRadius.circular(12);
     return Padding(

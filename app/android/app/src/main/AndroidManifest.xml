@@ -1,4 +1,5 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
     <uses-permission android:name="android.permission.INTERNET" />
     <!-- 读写 /storage/emulated/0/rime（Trime 用户目录）；仅本应用自行分发，不发布到商店 -->
     <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
@@ -8,13 +9,21 @@
     <uses-permission
         android:name="android.permission.WRITE_EXTERNAL_STORAGE"
         android:maxSdkVersion="29" />
+    <uses-permission android:name="moe.shizuku.manager.permission.API_V23" />
     <application
         android:label="Rime 更新器"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
         android:requestLegacyExternalStorage="true"
         android:usesCleartextTraffic="true">
+        <provider android:name="rikka.shizuku.ShizukuProvider"
+            android:authorities="${applicationId}.shizuku"
+            android:exported="true" android:multiprocess="false"
+            android:permission="android.permission.INTERACT_ACROSS_USERS_FULL" />
+        <!-- javap confirms MainActivity -> FlutterActivity -> android.app.Activity;
+             AGP lint cannot resolve the Flutter/Kotlin hierarchy here. -->
         <activity
+            tools:ignore="Instantiatable"
             android:name=".MainActivity"
             android:exported="true"
             android:launchMode="singleTop"
@@ -48,6 +57,14 @@
 
          In particular, this is used by the Flutter engine in io.flutter.plugin.text.ProcessTextPlugin. -->
     <queries>
+        <intent><action android:name="android.view.InputMethod" /></intent>
+        <package android:name="com.osfans.trime" />
+        <package android:name="com.osfans.trime.mie" />
+        <package android:name="com.viui.trime.cheese" />
+        <package android:name="org.fcitx.fcitx5.android.fx.rime" />
+        <package android:name="com.ihsiao.apps.hamster" />
+        <package android:name="com.vyv.tigertyper" />
+        <package android:name="com.fxliang.foxy" />
         <intent>
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>

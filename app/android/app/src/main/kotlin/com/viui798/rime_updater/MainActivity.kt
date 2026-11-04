@@ -13,14 +13,23 @@ import java.io.File
 import java.io.IOException
 
 class MainActivity : FlutterActivity() {
+    private lateinit var shizukuBridge: ShizukuBridge
+
+    override fun onDestroy() {
+        if (::shizukuBridge.isInitialized) shizukuBridge.dispose()
+        super.onDestroy()
+    }
+
     private var pendingPicker: MethodChannel.Result? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        shizukuBridge = ShizukuBridge(this)
         MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
             "com.viui798.rime_updater/platform",
         ).setMethodCallHandler { call, result ->
+            if (shizukuBridge.handle(call, result)) return@setMethodCallHandler
             when (call.method) {
                 "hasAllFilesAccess" -> result.success(hasAllFilesAccess())
                 "requestAllFilesAccess" -> {

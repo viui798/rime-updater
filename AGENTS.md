@@ -8,7 +8,7 @@
    （原开发机本地目录 `/Users/viui/Desktop/rime更新器`，方案仓库在 `/Users/viui/Desktop/芝士虎整`）
 2. 装 Flutter stable（原机器为 3.47.9 / Dart 3），然后 `cd app && flutter pub get`
    （项目只用纯 Dart 依赖 `archive` / `crypto` / `path`，不需要 CocoaPods）
-3. 跑验证：`dart analyze`、`flutter test`，当前应为 **37 项全部通过**
+3. 跑验证：`dart analyze`、`flutter test`，当前应为 **41 项全部通过**
 4. 构建：
    - macOS：`DEVELOPER_DIR=/Applications/Xcode-16.2.0.app/Contents/Developer flutter build macos --release`
    - Windows：在 Windows 机器上 `flutter build windows --release`，产物
@@ -51,7 +51,7 @@ RIME UPDATER」，界面标题、窗口标题、Android 应用名都不再出现
 
 - `app/`：**主客户端**，Flutter 原生桌面应用（Dart），一套代码覆盖 macOS / Windows，
   平台目录已生成（macos / windows / android / ios）；界面为 Material 3 原生窗口
-- `app/` 已验证：`dart analyze` 无问题，`flutter test` 37 项通过（过滤规则、增量包解包、
+- `app/` 已验证：`dart analyze` 无问题，`flutter test` 41 项通过（过滤规则、增量包解包、
   快照回滚、扁平/带目录 zip、版本推断、Rime 包识别、换方案备份与清理、手动目录与重命名、
   无变化跳过、云同步上传/删除/下载/在线编辑、同步库文件树、WebDAV 客户端、首页与弹窗渲染）
 - **启动不自动请求 GitHub**：打开 App 只有本地探测；点「检查更新」才发请求，检查结果
@@ -106,7 +106,7 @@ RIME UPDATER」，界面标题、窗口标题、Android 应用名都不再出现
   `WeaselServer /q` + `WeaselDeployer /deploy`
 - **Android（同文 / Trime）**：共用同一套 Dart 逻辑，目标目录 `/storage/emulated/0/rime`；
   启动请求 `MANAGE_EXTERNAL_STORAGE`（自用分发，不适合上架）；部署无法自动触发，
-  提示用户在 Trime 里点刷新；手动添加目录在 Android 上隐藏。模拟器（API 35）已跑通
+  提示用户在输入法里刷新；现支持公共目录添加与 Shizuku，见第 6 节第 39 条。模拟器（API 35）已跑通
   检查 / 预演 / 正式更新，**未在 Android 实机验证**
 - iOS 平台目录已生成，更新逻辑尚未接入；另提供 `ios/scripting/` 下的
   Scripting App 更新器（无需开发者账号）：已支持检查 / 预演 / 更新 / 本地 zip /
@@ -457,6 +457,96 @@ curl -s http://127.0.0.1:8766/api/state
    destination、Menu、Picker、ProgressView、buttonStyle）。esbuild bundle 检查通过；
    **未真机验证**（若推入的子页面状态不随操作刷新，回退方案是把对应操作按钮挪回主页）。
 
+36. Android 包体积排查（2026-11-05）：只读拆解现有 release 通用 APK（52,825,378 bytes）。
+   原生库占 52.31MB / 99.02%：arm64 17.73MB、armeabi-v7a 15.34MB、x86_64 19.24MB；
+   三套 Flutter 引擎合计 33.46MB，Dart AOT（含使用的框架代码）18.84MB。6 个 .so 均未压缩，
+   其余资源与包结构约 0.52MB，没有把 Rime 方案 / 模型打进去。建议以后直接分发用
+   `flutter build apk --release --split-per-abi`，arm64 包预计约 18MB（未重打包，属估算）。
+   完整条目测量与说明在 `dist/android-apk-size-report.md`；本次未改构建配置、未重装应用。
+
+37. 按 CPU 架构打包（2026-11-05）：按用户要求执行 `flutter build apk --release
+   --split-per-abi`，生成 arm64-v8a 18.21MB、armeabi-v7a 15.82MB、x86_64 19.71MB 三个
+   独立 APK；相较原 52.83MB 通用包分别减少 65.5% / 70.1% / 62.7%。产物复制到 `dist/`，
+   文件名为 `RimeUpdater-v1.0.0-ui-v3-android-<abi>.apk`，每包附 `.apk.sha256`，另有
+   `RimeUpdater-v1.0.0-ui-v3-android-split-manifest.json` 记录体积、版本代码与 SHA256。
+   已验证 ZIP 完整性、每包仅含对应架构的 libflutter.so / libapp.so、应用 ID、APK 签名
+   有效且与原通用包证书相同（沿用项目测试签名）。Flutter 分包 versionCode 自动变为
+   ARM32 1001 / ARM64 2001 / x86_64 4001；今后覆盖升级需注意版本代码不能降低。
+   本次仅构建和校验，未改源码、未覆盖安装；原通用包保留。实测结果追加到体积分析报告。
+
+38. Android 真机安装（2026-11-05）：通过无线 ADB 给用户手机（23127PN0CC / houji，
+   ARM64）安装 `RimeUpdater-v1.0.0-ui-v3-android-arm64-v8a.apk`（18.21MB），
+   安装前 SHA256 与清单一致，`adb install -r` 返回 Success；启动 MainActivity 成功，
+   进程存在且主界面为前台 Activity。仅验证安装与启动，权限、目录识别及更新由用户实测。
+
+39. Android 多前端与 Shizuku 接入（2026-11-05）：
+   - 原版仅识别两个固定同文路径。新增公共存储中输入法命名目录的有限扫描（不遍历全盘）、
+     任意 `*.schema.yaml` / `default.yaml` 特征识别、Android 手动公共路径、授权返回刷新。
+   - 新增设备区盾牌入口，通过官方 Shizuku API 13.1.5 授权和绑定 UserService；
+     枚举已安装 Rime 输入法，探测 `Android/data/<pkg>/files/{rime,data/rime,...}`。
+     Shizuku 的 shell 身份仍不可读 `/data/user/0`，未找到目录的前端在访问说明里列出，
+     不伪装成可更新；内部目录需要输入法自己的公共目录 / 导入导出功能。
+   - 新增 `android_profiles.dart`、`ShizukuBridge.kt`、`RimeFileService.kt`、`IRimeFiles.aidl`：
+     通过 PFD 流式读取到缓存（跳过根 build），原 Dart 安装 / 换方案 / 回滚 / 批量同步逻辑
+     在暂存区工作；只提交变化文件，SHA256 前置检查，备份后写入，失败恢复，恢复失败或
+     崩溃遗留事务保留 `.rime-updater-txn-*` 并阻止继续提交；不执行任意 shell 命令。
+     大目录会占用暂存空间；系统单文件选择器仍不能浏览受限目录，优先批量同步。
+   - `dart analyze` 无问题；Flutter 40 项通过；`dart run tool/verify.dart` 真实 v0.3.24
+     校验与只读预演通过。5 项 Android 原生测试在真机独立 `.dev` 应用的临时目录通过：
+     读取 / 提交增改删与备份 / 冲突拒绝 / 中途失败恢复 / 越界拒绝。测试应用已卸载。
+     模拟器存储不足拒绝安装，故改用隔离测试应用；debug 现在用 `.dev` 后缀，避免覆盖 release。
+   - 新版三 ABI APK 在 `dist/RimeUpdater-v1.0.0-build2-shizuku-android-<abi>.apk`：
+     ARM64 18,877,540 bytes、ARM32 16,722,876、x86_64 20,319,858，附 SHA256 与 JSON 清单。
+     `pubspec` build number 升至 2（ARM64 versionCode 2002），签名仍沿用项目测试证书。
+   - ARM64 已覆盖安装到用户手机并启动，用户亲自允许 Shizuku；实机截图确认 5 目录：
+     公共 `rime`、`咩文rime文件夹`、`rime-cheese`，以及 Shizuku 同文、
+     中州鹅（`org.fcitx.fcitx5.android.fx.rime/files/data/rime`）。正式方案更新和
+     真实受限目录的写回由用户后续实测，本次未操作；安装 / 识别与隔离文件测试已验证。
+     验证记录和截图在 `dist/android-shizuku-validation/`。
+
+40. macOS 更新后小企鹅 / 元书打不了字（2026-11-05）：根因是**增量包只带「相邻 tag 之间
+   变化的文件」，补不上老底子缺的新增文件**。小企鹅（`~/.local/share/fcitx5/rime`）与
+   元书（`~/Library/Application Support/com.ihsiao.inputmethod.Cobra/RimeUserData`）是
+   旧版完整包装的，版本标记虽走到 0.3.23/0.3.24，但文件基线停在旧世代——`yin_full.lua`、
+   `tiger_full.dict.yaml`、`tiger_sentence_dispatch.lua`、`input_statistics_proc.lua` 等
+   后续新增的文件从未被任何增量包带到。v0.3.24 改了 `tiger_sentence.schema.yaml`
+   （新 schema 唯一翻译入口是 `lua_translator@tiger_sentence_dispatch`，并引用
+   `*yin_full` 与 `tiger_full` 词典），缺文件导致 Lua 栈 / 部署失败 → 出不了字；
+   鼠须管目录是较新完整包装、文件齐全，不受影响。修复：从 `~/Library/Rime` 复制 8 个
+   缺失文件（上述 4 个 + input_stats_*.lua×4；root 下的同名 lua 是旧副本不用抄，
+   `english_chinese.txt`、`wanxiang_pro*`、`dicts/`、`zuci/` 属其他方案 / 个人文件不抄），
+   fcitx5 用 `fcitx5-curl /config/addon/rime/deploy`（实测该端点只写配置值不触发部署，
+   真正部署要按 Control+Alt+grave 或切到小企鹅时自动维护）、元书 `killall Cobra`
+   重启等激活时部署。**教训**：方案仓库 `make_release_delta.py` 应改为「相对最老支持基线
+   生成增量」或在 DELTA.json 里带必需文件清单（缺失即回退完整包），否则旧基线用户每次
+   方案新增文件都会踩同一坑。`build/kf.*.bin` 是 v0.3.24 移除 kf 后的残留，无害。
+
+40. 补充 Android 前端路径（2026-11-05，build 3）：按用户提供路径接入中文输入法
+   `/sdcard/Android/rime`（统一使用 `/storage/emulated/0/Android/rime`）、小狐狸
+   `Android/data/com.fxliang.foxy/files/foxy/rime`、中文输入法2 / 元书共用的 `Documents/rime`。
+   实机发现后两处都是多方案容器，新增受限目录 `discoverRoots` 与公共目录 `schemas/`
+   子目录识别，只将含 Rime 配置的实际方案目录列为目标，不把包写到容器根目录；排除
+   conf/build/themes 等目录，共用路径去重。小狐狸包可见性与已安装前端筛选同步补齐。
+   - Flutter 41 项通过；静态分析无问题；6 项真机隔离原生测试通过，新增多方案扫描测试。
+     临时 `.dev` / `.dev.test` 应用已清理，未修改任何真实输入法方案。
+   - 三 ABI release + SHA256 清单在 `dist/RimeUpdater-v1.0.0-build3-android-<abi>.apk`，
+     ARM64 18,877,568 bytes，已校验 v2 签名并覆盖安装到用户手机（versionCode 2003）。
+     Shizuku 既有授权保留，启动截图确认识别数 5 → 11：原 5 处 + 中文输入法 1 处 +
+     中文输入法2 / 元书共用 schemas 的 2 个方案 + 小狐狸万象九键 / 九键虎 / 虎整句 3 个方案。
+     截图为 `dist/android-shizuku-validation/phone-build3*.png`；正式更新仍由用户实测。
+
+41. README 全面重写（2026-11-05）：按 `ccch1mneyyy/dsh-Go` 的展示顺序，采用居中图标 /
+   简介 / 徽章、功能展示、下载入口、完整功能、安装与权限、折叠 FAQ、CLI、构建、目录、贡献
+   与许可致谢。核对当前 Flutter / Android Shizuku / iOS Scripting / Python 的功能差异，
+   写明多目录、预演、增量回退、GitHub / 本地 ZIP、换方案、数据保护、快照、WebDAV 与在线编辑。
+   - 从已有 build 3 真机截图裁掉系统栏并缩小，保存到 `docs/assets/android-home.png` 与
+     `android-shizuku.png`，作为可随仓库分发的 README 图片；未新增截图采集或操作用户方案。
+   - 更正旧 README 的 Android 未接入、Python 功能完全一致、完整快照等过时 / 绝对描述；
+     明确 32 MiB 限制、普通 Shizuku 无法访问内部私有目录、凭据明文存储、iOS 未真机验证、
+     真实受限目录写回待验证，以及旧基线增量可能缺文件的问题。CI 通用包与本地分 ABI 包分开说明。
+   - 本次仅文档与展示图片变更；检查本地链接、锚点、HTML 标签、代码围栏和 `git diff --check`，
+     未重跑应用测试 / 构建。README 的 41 项 Flutter + 6 项原生结果引用上一轮验证记录。
+
 ## 7. 下一步（按优先级）
 
 1. **Windows 回滚实跑**：识别、更新与部署已在实机验证（两设备 0.3.1/0.3.2 → 0.3.23，
@@ -489,7 +579,42 @@ curl -s http://127.0.0.1:8766/api/state
 
 ## 9. 交接快照（每次会话结束更新这一节）
 
-> 2026-11-04 · `main` · 本次：Android 模拟器与 macOS 本机安装完成（本地改动，未提交 / 未推送）
+> 2026-11-05 · `main` · 本次：参考 dsh-Go 重写 README，完整梳理各端功能与使用边界
+
+- **本次文档交付**：README 已重写，覆盖 Flutter 桌面 / Android、Shizuku、多方案目录、
+  WebDAV 同步库、iOS Scripting 与 Python CLI / 备份工具。附两张裁剪缩小后的真实 Android
+  截图（`docs/assets/`）；文档链接、锚点、HTML / 代码围栏及 diff 空白检查通过。
+  本次没有修改客户端实现、安装软件、执行方案写入或重新构建；现有未提交功能改动保持。
+  最新应用基线仍为下述 build 3，README 的测试状态引用既有验证结果。
+
+- **最新交付 build 3**：已覆盖安装 ARM64 18.88MB（versionCode 2003），真机识别 11 个
+  实际方案目录。新增中文输入法、中文输入法2 / 元书的共用 schemas、小狐狸的三个方案；
+  多方案容器不会作为安装目标，共用路径只显示一次。41 项 Flutter + 6 项原生测试通过。
+  三架构包和 SHA256 位于 `dist/RimeUpdater-v1.0.0-build3-android-<abi>.apk`，
+  `pubspec` 为 1.0.0+3，Shizuku UserService 协议版本为 3。测试应用已卸载。
+  正式方案更新、受限目录真实写回与部署仍待用户验证。
+
+
+- **本次结果**：40 项 Flutter 测试、静态分析、真实下载预演、5 项 Android 隔离文件测试
+  全通过。Shizuku ARM64 18.88MB 包已装到用户手机（versionCode 2002），用户已授权，
+  实机显示 3 公共目录 + 同文 / 中州鹅两处 Android/data 目录。实际方案更新 / 部署尚未操作。
+- **新入口与边界**：设备区盾牌连接 Shizuku，刷新重扫，「+」填写公共目录。
+  Shizuku 不代表能访问内部 `/data/user/0`；仓 / 虎标等需按各自数据目录决定使用方式。
+  用户期望支持所有前端，仍需逐个验证其内部目录 / 导入导出方式，不能宣称全部已支持。
+- **交付**：`dist/RimeUpdater-v1.0.0-build2-shizuku-android-<abi>.apk` 三架构与校验文件。
+  `app/pubspec.yaml` 为 1.0.0+2；debug ID 为 `com.viui798.rime_updater.dev`，原生测试目标
+  是 `.dev.test`，两个临时测试应用已从手机卸载。release ID 保持原值。
+- **后续验证**：真实受限目录的预演、正式写回、回滚与 WebDAV；大目录暂存空间；
+  私有目录前端的数据导出接入。遇到 `.rime-updater-txn-*` 遗留先恢复，不要直接再次写回。
+
+
+- **真机安装**：无线 ADB 安装 ARM64 18.21MB 包到 23127PN0CC，安装成功，已启动并确认
+  MainActivity 位于前台；等待用户实测权限、Trime 目录识别与更新流程。
+
+- **本次打包（2026-11-05）**：三个独立 APK 已生成并校验：arm64-v8a 18.21MB、
+  armeabi-v7a 15.82MB、x86_64 19.71MB；产物、逐包 SHA256、JSON 清单在 `dist/`。
+  ARM64 相比通用包减少 65.5%。未改源码或覆盖设备安装，原通用包保留。
+- **包体积报告**：`dist/android-apk-size-report.md` 已追加分架构实际测量结果。
 
 - **已完成并已推送**：Flutter 客户端（`app/`）、GitHub 方案 / 本地 zip / 换方案、
   手动目录与改名、可拖动布局、WebDAV 云同步、文件夹式同步库（上传 / 在线编辑 / 删除）、
@@ -500,7 +625,8 @@ curl -s http://127.0.0.1:8766/api/state
   `dist/install-backups/20261104-235652/RimeUpdater.app`。设置与 Rime 个人数据保留。
 - **手机交付**：整行「一键更新」+ 并排检查 / 预演，37 项测试与静态分析通过；Android
   release APK 构建、v2 签名校验、API 35 模拟器覆盖安装 / 冷启动 / 截图通过。安装包与 SHA256
-  在 `dist/RimeUpdater-v1.0.0-ui-v3-android.apk` / `.apk.sha256`，沿用项目测试签名；未真机验证。
+  在 `dist/RimeUpdater-v1.0.0-ui-v3-android.apk` / `.apk.sha256`，沿用项目测试签名；
+  真机已安装 ARM64 分包并启动，功能待用户验证。
 - **上一轮完成**：参考 awesome-design-md 的 Linear / Raycast 重做 Flutter UI v3（雾白淡紫、
   桌面侧栏、更新卡、手机整体滚动）；设计规范与 macOS 原生标题同步更新。静态分析无问题，
   37 项测试通过；macOS release 已构建并查看实际界面；真实下载校验与只读预演通过。

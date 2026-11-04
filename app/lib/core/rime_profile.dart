@@ -14,8 +14,22 @@ const backupMaxBytes = 32 * 1024 * 1024;
 /// Trime（同文输入法）默认的用户目录。
 const androidRimeDir = '/storage/emulated/0/rime';
 
-const runtimeDirs = ['lua/', 'opencc/', 'models/', 'dicts/', 'tiger_dicts/', 'zuci/'];
-const excludeDirs = ['tools/', 'docs/', 'sync/', 'validation/', '手机精简版/', 'build/'];
+const runtimeDirs = [
+  'lua/',
+  'opencc/',
+  'models/',
+  'dicts/',
+  'tiger_dicts/',
+  'zuci/'
+];
+const excludeDirs = [
+  'tools/',
+  'docs/',
+  'sync/',
+  'validation/',
+  '手机精简版/',
+  'build/'
+];
 const excludeNames = {
   'AGENTS.md',
   'README.md',
@@ -66,7 +80,14 @@ bool looksLikeRimeDir(String path) {
   ]) {
     if (File(p.join(path, name)).existsSync()) return true;
   }
-  return false;
+  try {
+    return Directory(path).listSync(followLinks: false).whereType<File>().any(
+        (file) =>
+            p.basename(file.path).endsWith('.schema.yaml') ||
+            p.basename(file.path) == 'default.yaml');
+  } on FileSystemException {
+    return false;
+  }
 }
 
 List<Profile> detectProfiles({List<String> hidden = const []}) {
@@ -95,12 +116,10 @@ List<Profile> detectProfiles({List<String> hidden = const []}) {
       'cobra',
     );
   } else if (Platform.isAndroid) {
-    add('同文（Trime）', androidRimeDir, 'trime');
-    add(
-      '同文（旧版）',
-      '/storage/emulated/0/Android/data/com.osfans.trime/files/rime',
-      'trime',
-    );
+    for (final profile in detectAndroidPublicProfiles('/storage/emulated/0')) {
+      add(profile.label, profile.path, profile.kind);
+    }
+    // Android/data 通过 Shizuku 单独探测，普通文件权限无法访问。
   } else if (Platform.isWindows) {
     // 小狼毫用 %APPDATA%\Rime（由注册表记录），虎韵用自己的
     // %LOCALAPPDATA%\Tigrime\Rime，两者用户目录并不相同。
@@ -123,6 +142,72 @@ List<Profile> detectProfiles({List<String> hidden = const []}) {
       });
     }
   }
+  return profiles;
+}
+
+/// Scan only input-method-named public folders, never Android/data, downloads,
+/// backups or the whole shared storage tree. Custom paths can be added manually.
+List<Profile> detectAndroidPublicProfiles(String storageRoot) {
+  final profiles = <Profile>[];
+  final seen = <String>{};
+  void add(String label, String path) {
+    final clean = p.normalize(path);
+    if (!looksLikeRimeDir(clean) || !seen.add(clean.toLowerCase())) return;
+    profiles.add(Profile(label: label, path: clean, kind: 'trime'));
+  }
+
+  // These frontends use public folders outside the usual top-level rime path.
+  // 中文输入法2 and 元书 share one directory, so it must be updated only once.
+  add('中文输入法', p.join(storageRoot, 'Android', 'rime'));
+  final shared = p.join(storageRoot, 'Documents', 'rime');
+  const sharedLabel = '中文输入法2 / 元书（共用）';
+  if (looksLikeRimeDir(shared)) {
+    add(sharedLabel, shared);
+  } else {
+    // Multi-scheme frontends store runnable Rime directories under schemas/.
+    for (final container in [shared, p.join(shared, 'schemas')]) {
+      try {
+        for (final entry in Directory(container)
+            .listSync(followLinks: false)
+            .whereType<Directory>()) {
+          if (const {
+            'build',
+            'conf',
+            'themes',
+            'themes_disabled',
+            'scripts',
+            'logs',
+            'sync'
+          }.contains(p.basename(entry.path))) {
+            continue;
+          }
+          add('$sharedLabel · ${p.basename(entry.path)}', entry.path);
+        }
+      } on FileSystemException {/* Container may not exist yet. */}
+    }
+  }
+  try {
+    final root = Directory(storageRoot);
+    if (!root.existsSync()) return profiles;
+    for (final entry
+        in root.listSync(followLinks: false).whereType<Directory>()) {
+      final name = p.basename(entry.path);
+      if (!RegExp(r'rime|trime|hamster|fcitx|tigertyper', caseSensitive: false)
+          .hasMatch(name)) {
+        continue;
+      }
+      for (final path in [
+        entry.path,
+        p.join(entry.path, 'rime'),
+        p.join(entry.path, 'Rime')
+      ]) {
+        if (looksLikeRimeDir(path)) {
+          add('公共目录 · $name', path);
+          break;
+        }
+      }
+    }
+  } on FileSystemException {/* Permission may still be awaiting approval. */}
   return profiles;
 }
 
@@ -165,13 +250,14 @@ void _scanWindows(
 List<Profile> profilesFromPaths(
   List<String> paths, {
   Map<String, String> names = const {},
+  bool allowUnrecognized = false,
 }) {
   final profiles = <Profile>[];
   final seen = <String>{};
   for (final raw in paths) {
     final path = p.normalize(raw.trim());
     if (path.isEmpty || !Directory(path).existsSync()) continue;
-    if (!looksLikeRimeDir(path)) continue;
+    if (!allowUnrecognized && !looksLikeRimeDir(path)) continue;
     if (!seen.add(path)) continue;
     final label = names[path]?.trim();
     profiles.add(Profile(

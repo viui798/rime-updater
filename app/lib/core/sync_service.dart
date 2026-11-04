@@ -5,6 +5,7 @@ import 'package:path/path.dart' as p;
 
 import '../models.dart';
 import 'scheme_switcher.dart';
+import 'android_profiles.dart';
 import 'settings_store.dart';
 import 'webdav_client.dart';
 
@@ -349,6 +350,18 @@ Future<int> pushFiles({
   List<String>? files,
   String? stateDir,
 }) async {
+  if (needsShizuku(profile.path)) {
+    return withProfileDirectory(
+        profile,
+        (local) => pushFiles(
+            client: client,
+            profile: local,
+            deviceName: deviceName,
+            log: log,
+            files: files,
+            stateDir: stateDir),
+        readOnly: true);
+  }
   final kind = syncKey(profile);
   final id = deviceId(stateDir: stateDir);
   final name =
@@ -446,6 +459,12 @@ Future<int> pullLibrary({
   required void Function(String line) log,
   String? backupRoot,
 }) async {
+  if (needsShizuku(profile.path)) {
+    return withProfileDirectory(
+        profile,
+        (local) => pullLibrary(
+            client: client, profile: local, log: log, backupRoot: backupRoot));
+  }
   final kind = syncKey(profile);
   final library = await fetchLibrary(client, kind);
   if (library.files.isEmpty) {
