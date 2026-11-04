@@ -115,6 +115,9 @@ void deployProfile(
       _weaselPaths(log);
       return;
     }
+  } else if (Platform.isAndroid) {
+    log('  提示：请在 Trime（同文输入法）里点右上角刷新图标重新部署');
+    return;
   }
   log('  提示：未知前端，请手动重新部署');
 }

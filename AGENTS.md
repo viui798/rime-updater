@@ -8,11 +8,14 @@
    （原开发机本地目录 `/Users/viui/Desktop/rime更新器`，方案仓库在 `/Users/viui/Desktop/芝士虎整`）
 2. 装 Flutter stable（原机器为 3.47.9 / Dart 3），然后 `cd app && flutter pub get`
    （项目只用纯 Dart 依赖 `archive` / `crypto` / `path`，不需要 CocoaPods）
-3. 跑验证：`dart analyze`、`flutter test`，当前应为 **32 项全部通过**
+3. 跑验证：`dart analyze`、`flutter test`，当前应为 **33 项全部通过**
 4. 构建：
    - macOS：`DEVELOPER_DIR=/Applications/Xcode-16.2.0.app/Contents/Developer flutter build macos --release`
    - Windows：在 Windows 机器上 `flutter build windows --release`，产物
      `build\windows\x64\runner\Release\rime_updater.exe`（需要 VS「使用 C++ 的桌面开发」）
+   - Android：`flutter build apk --debug`，产物
+     `build/app/outputs/flutter-apk/app-debug.apk`。本机 JDK 17 在 `~/android/jdk17`，
+     SDK 在 `/opt/homebrew/share/android-commandlinetools`（构建时设 `JAVA_HOME` / `ANDROID_HOME`）
 5. 启动后先勾选设备 → 点「检查更新」。**启动时故意不联网**，不要改回自动检查
 6. 读完第 2/3/4/6/7 节；本次会话结束前更新第 6 节与第 9 节
 
@@ -45,7 +48,7 @@
 
 - `app/`：**主客户端**，Flutter 原生桌面应用（Dart），一套代码覆盖 macOS / Windows，
   平台目录已生成（macos / windows / android / ios）；界面为 Material 3 原生窗口
-- `app/` 已验证：`dart analyze` 无问题，`flutter test` 32 项通过（过滤规则、增量包解包、
+- `app/` 已验证：`dart analyze` 无问题，`flutter test` 33 项通过（过滤规则、增量包解包、
   快照回滚、扁平/带目录 zip、版本推断、Rime 包识别、换方案备份与清理、手动目录与重命名、
   无变化跳过、云同步上传/删除/下载/在线编辑、同步库文件树、WebDAV 客户端、首页与弹窗渲染）
 - **启动不自动请求 GitHub**：打开 App 只有本地探测；点「检查更新」才发请求，检查结果
@@ -89,7 +92,10 @@
 - 远端选择已验证：优先选中 `cheese-tiger-v0.3.23-update.zip`
 - 匿名可访问：不设 `GITHUB_TOKEN` 也能拉取 Release（token 仅避开 API 限流）
 - Windows（小狼毫 / 虎韵）代码路径已写，**未在 Windows 实机验证**
-- Android / iOS 平台目录已生成，但更新逻辑尚未接入
+- **Android（同文 / Trime）**：共用同一套 Dart 逻辑，目标目录 `/storage/emulated/0/rime`；
+  启动请求 `MANAGE_EXTERNAL_STORAGE`（自用分发，不适合上架）；部署无法自动触发，
+  提示用户在 Trime 里点刷新；手动添加目录在 Android 上隐藏。**未在 Android 实机验证**
+- iOS 平台目录已生成，但更新逻辑尚未接入
 
 ## 3. 文件说明
 
@@ -97,6 +103,7 @@
 |---|---|
 | `app/` | Flutter 主客户端：`lib/main.dart`、`lib/core/`、`lib/ui/`、`test/` |
 | `app/lib/core/rime_profile.dart` | 前端探测、版本读取、`shouldCopy` 过滤、备份列表 |
+| `app/lib/core/android_platform.dart` | Android 存储权限请求与系统文件选择（MethodChannel） |
 | `app/lib/core/github_client.dart` | Release 拉取、下载、SHA256 校验、缓存 |
 | `app/lib/core/package_preparer.dart` | 远端包准备：增量优先、`full_required` 回退完整包、缓存复用 |
 | `app/lib/core/local_package.dart` | 系统文件 / 目录选择框、本地 zip 版本推断 |
@@ -111,6 +118,7 @@
 | `app/test/` | 8 个测试文件，覆盖过滤、解包、回滚、同步、WebDAV、界面 |
 | `app/tool/verify.dart` | 真实下载（走缓存）+ 对首个目录预演，不打开界面 |
 | `app/tool/make_dmg.sh` | 生成 macOS DMG（含「应用程序」软链接） |
+| `app/android/app/src/main/kotlin/com/viui798/rime_updater/MainActivity.kt` | Android MethodChannel：所有文件权限、系统文件选择 |
 | `.github/workflows/build.yml` | 推 `v*` tag 或手动触发，构建 macOS DMG / Windows zip |
 | `app/lib/core/settings_store.dart` | 设置读写（与 Python 版同一路径） |
 | `update_desktop.py` | Python 核心：profile 探测、资产选择、下载校验、解包应用、部署、快照/回滚 |
@@ -197,7 +205,7 @@ Flutter 客户端：
 ```bash
 cd app
 dart analyze                      # 静态分析
-flutter test                      # 过滤规则 / 解包 / 快照回滚 / 同步 / 界面，当前 32 项
+flutter test                      # 过滤规则 / 解包 / 快照回滚 / 同步 / 界面，当前 33 项
 dart run tool/verify.dart         # 真实下载（走缓存）+ 对首个目录预演，不需要打开界面
 
 # Xcode 未设为默认时：
@@ -208,6 +216,12 @@ DEVELOPER_DIR=/Applications/Xcode-16.2.0.app/Contents/Developer flutter build ma
 flutter pub get
 flutter build windows --release
 # 产物：build\windows\x64\runner\Release\rime_updater.exe（整个 Release 目录一起分发）
+
+# Android（JDK 17 + Android SDK 36）：
+export JAVA_HOME="$HOME/android/jdk17/Contents/Home"
+export ANDROID_HOME=/opt/homebrew/share/android-commandlinetools
+flutter build apk --debug
+# 产物：build/app/outputs/flutter-apk/app-debug.apk
 ```
 
 Python 侧（改脚本时）：
@@ -296,6 +310,16 @@ curl -s http://127.0.0.1:8766/api/state
 23. 联网时机优化：移除启动 400ms 后自动 `_check()`，打开 App 不再消耗 GitHub 匿名额度；
    检查成功后缓存 `ReleaseInfo` 10 分钟，`preparePackage` 增加可选 `release` 参数复用结果，
    避免「检查 + 更新」重复请求；`flutter test` 32 项通过（首页测试断言启动时日志为空）。
+24. Android 端：同一套 Dart 逻辑接入 Android，
+   - `detectProfiles` 增加 `/storage/emulated/0/rime`（Trime 默认）与旧版路径；
+   - 设置 / 缓存路径按 Android 应用私有目录适配；部署改为提示在 Trime 内刷新；
+   - 新增 `android_platform.dart` + `MainActivity.kt` MethodChannel：所有文件访问权限、
+     系统文件选择（选中 zip 复制到 cache）；Manifest 增加 INTERNET / MANAGE_EXTERNAL_STORAGE、
+     中文应用名、允许明文 HTTP（局域网 WebDAV）；
+   - 主界面与全部弹窗改为窄屏自适应；Android 上隐藏「添加目录」入口；
+   - 用模拟器（API 35）验证：启动、授权、识别 Trime、检查更新 v0.3.23、预演 8 文件、
+     正式更新 8 文件 + 快照 + 回滚记录；`app-release.apk` 52.8MB；
+   - Actions 增加 android job，产出 `android-apk` artifact。测试增至 33 项（新增窄屏布局）。
 
 ## 7. 下一步（按优先级）
 
@@ -303,18 +327,20 @@ curl -s http://127.0.0.1:8766/api/state
    （产物 `build\windows\x64\runner\Release\rime_updater.exe`，整个目录一起分发），确认
    ① 能同时识别小狼毫与虎韵；② `WeaselServer` 路径探测正确；③ 部署后候选正常。
    也可以推 `v*` tag，用 Actions 的 `windows-zip` artifact 拿到现成包。
-2. **界面实跑更新**：目前只做了「检查 + 预演」；等有真实新版本时跑一次完整更新与回滚，
-   确认部署命令从 App 内执行也正常。
+2. **界面实跑更新**：macOS 目前只做了「检查 + 预演」；等有真实新版本时跑一次完整更新与回滚。
+   Android 模拟器已跑通完整更新（8 文件 + 快照），待真机复验。
 3. **云同步实机验证**：用真实 WebDAV 账号（坚果云 / Nextcloud）跑一遍「上传本机 →
    另一台设备下载云端」，确认目录创建、清单读写、单个文件增删与覆盖前备份都正常；
    若服务端返回 301/409，需要在 `webdav_client.dart` 里补处理。
-4. **iOS / Android 接入**：平台目录已生成；Android 走 ADB push 到 Trime 目录，
-   iOS 只能走快捷指令/分享安装，需要单独设计。
-5. **界面增强**：显示落后版本数；失败自动重试；把 `backup_userdata.py` 的备份/恢复
+4. **Android 真机验证**：模拟器（API 35）已验证启动、权限授予、识别 `/storage/emulated/0/rime`、
+   检查更新、预演与正式更新；真机还需确认 MANAGE_EXTERNAL_STORAGE 授权流程、
+   Trime 实际目录（可能被用户改过）以及更新后在 Trime 里刷新部署的体验。
+5. **iOS 接入**：平台目录已生成，只能走快捷指令 / 分享安装，需要单独设计。
+6. **界面增强**：显示落后版本数；失败自动重试；把 `backup_userdata.py` 的备份/恢复
    用 Dart 重做并接进界面。
-6. **体验**：Dart 桌面端不支持 socks5，只支持 HTTP 代理；可引入第三方包补 socks5。
-7. **签名与图标**：Flutter 版应用图标已完成，但仍未签名；分发需要配置 macOS 签名与公证。
-8. **可选**：执行一次
+7. **体验**：Dart 桌面端不支持 socks5，只支持 HTTP 代理；可引入第三方包补 socks5。
+8. **签名与图标**：Flutter 版应用图标已完成，但仍未签名；分发需要配置 macOS 签名与公证。
+9. **可选**：执行一次
    `sudo xcode-select --switch /Applications/Xcode-16.2.0.app/Contents/Developer`，
    之后构建不用再带 `DEVELOPER_DIR`。
 
@@ -326,15 +352,18 @@ curl -s http://127.0.0.1:8766/api/state
 
 ## 9. 交接快照（每次会话结束更新这一节）
 
-> 2026-11-04 · `main` @ `63fef18`（新增 Flutter 客户端、云同步与同步库管理）
+> 2026-11-04 · `main`（Android 适配，提交哈希见 `git log`）· 之前推送 `e2eab79`
 
 - **已完成并已推送**：Flutter 客户端（`app/`）、GitHub 方案 / 本地 zip / 换方案、
   手动目录与改名、可拖动布局、WebDAV 云同步、文件夹式同步库（上传 / 在线编辑 / 删除）、
-  启动不联网与 10 分钟检查缓存、GitHub Actions 双平台构建
-- **已验证**：`dart analyze` 无问题；`flutter test` 32 项通过；macOS 实跑
-  （三前端识别、远端 v0.3.23、预演 8 文件）；DMG 打包并安装到 `/Applications`
+  启动不联网与 10 分钟检查缓存、GitHub Actions 三平台构建
+- **本会话新增（已提交待推送）**：Android 适配（权限、Trime 目录、文件选择、窄屏 UI、
+  Actions android job）；模拟器验证通过
+- **已验证**：`dart analyze` 无问题；`flutter test` 33 项通过；macOS 实跑
+  （三前端识别、远端 v0.3.23、预演 8 文件）；DMG 打包并安装到 `/Applications`；
+  Android 模拟器（API 35）实跑检查 / 预演 / 正式更新 + 快照
 - **未验证（优先做）**：Windows 实机（小狼毫 / 虎韵、WeaselServer 部署）、
-  真实 WebDAV 账号（坚果云 / Nextcloud，注意 301/409）、真实新版本的一次完整更新与回滚
+  Android 真机 + Trime 实际部署、真实 WebDAV 账号（坚果云 / Nextcloud，注意 301/409）
 - **不要改的约定**：启动不自动请求 GitHub；更新覆盖前必须有快照 / 备份；
   `*.userdb`、`user.yaml` 等个人数据不参与方案覆盖；云同步只走 `<kind>/files/<相对路径>`
 - **本机数据**：设置 / 设备 ID / 备份都在第 0 节列出的应用支持目录，不在仓库里

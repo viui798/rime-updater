@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../core/github_client.dart';
 import '../models.dart';
+import 'dialog_size.dart';
 
 class RemoteSchemeOptions {
   const RemoteSchemeOptions({
@@ -134,7 +135,7 @@ class _RemoteSchemeDialogState extends State<RemoteSchemeDialog> {
     return AlertDialog(
       title: const Text('从 GitHub 安装方案'),
       content: SizedBox(
-        width: 560,
+        width: dialogWidth(context, 560),
         child: SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,

@@ -53,9 +53,30 @@ jobs:
           name: windows-zip
           path: app/build/*.zip
 
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+      - name: Build Android APK
+        working-directory: app
+        run: |
+          flutter pub get
+          flutter build apk --release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-apk
+          path: app/build/app/outputs/flutter-apk/app-release.apk
+
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [macos, windows]
+    needs: [macos, windows, android]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -75,6 +96,9 @@ jobs:
             「系统设置 → 隐私与安全性」里点「仍要打开」。
 
             Windows：解压 zip 后运行 `rime_updater.exe`。
+
+            Android：安装 `app-release.apk`，首次启动按提示授予「所有文件访问权限」；
+            更新完成后请在 Trime（同文输入法）里点右上角刷新图标重新部署。
 
             首次启动不会自动联网；点「检查更新」才会请求 GitHub，之后可以
             「仅预演」或「一键更新」。

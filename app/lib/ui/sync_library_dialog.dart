@@ -5,6 +5,7 @@ import '../core/local_package.dart';
 import '../core/sync_service.dart';
 import '../core/webdav_client.dart';
 import '../models.dart';
+import 'dialog_size.dart';
 
 const _textExtensions = [
   '.yaml',
@@ -562,8 +563,8 @@ class _SyncLibraryDialogState extends State<SyncLibraryDialog> {
     final hasError = _error;
     return Dialog(
       child: SizedBox(
-        width: 700,
-        height: 520,
+        width: dialogWidth(context, 700),
+        height: dialogHeight(context, 520),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
@@ -643,8 +644,8 @@ class _FileEditorDialogState extends State<_FileEditorDialog> {
         ],
       ),
       content: SizedBox(
-        width: 660,
-        height: 420,
+        width: dialogWidth(context, 660),
+        height: dialogHeight(context, 420),
         child: TextField(
           controller: _controller,
           expands: true,

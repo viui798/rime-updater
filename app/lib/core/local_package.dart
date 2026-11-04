@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 
+import 'android_platform.dart';
 import 'zip_installer.dart';
 
 /// 打开系统文件选择框，返回选中的 zip 路径；取消时返回 null。
@@ -20,6 +21,7 @@ Future<String?> pickFile({
   String? initialDir,
 }) async {
   try {
+    if (Platform.isAndroid) return await pickAndroidFile();
     if (Platform.isMacOS) {
       final script = initialDir == null
           ? 'POSIX path of (choose file with prompt "$prompt")'

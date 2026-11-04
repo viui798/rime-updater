@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 
+import 'core/android_platform.dart';
 import 'core/deployer.dart';
 import 'core/github_client.dart';
 import 'core/local_package.dart';
@@ -91,6 +92,46 @@ class _HomePageState extends State<HomePage> {
     _refreshProfiles();
     _refreshBackups();
     // 启动时不自动请求 GitHub：只有用户点「检查更新」或其他操作时才联网
+    if (Platform.isAndroid) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _ensureAndroidAccess();
+      });
+    }
+  }
+
+  /// Android 上需要「所有文件访问权限」才能读写 /storage/emulated/0/rime。
+  Future<void> _ensureAndroidAccess() async {
+    if (!Platform.isAndroid) return;
+    if (await hasAllFilesAccess()) {
+      if (mounted) _refreshProfiles();
+      return;
+    }
+    if (!mounted) return;
+    final go = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('需要文件访问权限'),
+        content: const Text(
+          '更新器要读写手机里的 Rime 用户目录（同文输入法通常是 '
+          '/storage/emulated/0/rime）。\n\n'
+          '请在接下来的系统设置里打开「允许访问所有文件」。',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('稍后'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('去授权'),
+          ),
+        ],
+      ),
+    );
+    if (go != true) return;
+    await requestAllFilesAccess();
+    await Future<void>.delayed(const Duration(seconds: 2));
+    if (mounted) _refreshProfiles();
   }
 
   @override
@@ -785,20 +826,26 @@ class _HomePageState extends State<HomePage> {
     final theme = Theme.of(context);
     return Scaffold(
       body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              _buildHeader(theme),
-              const SizedBox(height: 12),
-              _buildRemoteLine(theme),
-              const SizedBox(height: 4),
-              _buildProgress(theme),
-              const SizedBox(height: 8),
-              Expanded(child: _buildResizableBody(theme)),
-            ],
-          ),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final compact = constraints.maxWidth < 760;
+            final padding = compact ? 12.0 : 20.0;
+            return Padding(
+              padding: EdgeInsets.fromLTRB(padding, 12, padding, 12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  _buildHeader(theme, compact),
+                  SizedBox(height: compact ? 8 : 12),
+                  _buildRemoteLine(theme, compact),
+                  const SizedBox(height: 4),
+                  _buildProgress(theme),
+                  const SizedBox(height: 8),
+                  Expanded(child: _buildResizableBody(theme)),
+                ],
+              ),
+            );
+          },
         ),
       ),
     );
@@ -879,51 +926,104 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  Widget _buildHeader(ThemeData theme) {
+  Widget _buildLogo(ThemeData theme) {
+    return Container(
+      width: 40,
+      height: 40,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(12),
+        gradient: LinearGradient(
+          colors: [
+            theme.colorScheme.primary,
+            theme.colorScheme.primary.withValues(alpha: 0.75),
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+      ),
+      child: const Text(
+        '虎',
+        style: TextStyle(
+          color: Colors.white,
+          fontSize: 20,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+    );
+  }
+
+  List<Widget> _mainActions() {
+    return [
+      OutlinedButton(
+        onPressed: _busy ? null : _check,
+        child: const Text('检查更新'),
+      ),
+      OutlinedButton(
+        onPressed: _busy ? null : () => _runUpdate(dryRun: true),
+        child: const Text('仅预演'),
+      ),
+      FilledButton(
+        onPressed: _busy ? null : () => _runUpdate(dryRun: false),
+        child: const Text('一键更新'),
+      ),
+    ];
+  }
+
+  Widget _buildHeader(ThemeData theme, bool compact) {
+    final title = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          '芝士虎整 · 更新器',
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: theme.textTheme.titleLarge?.copyWith(
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        if (!compact)
+          Text(
+            '虎码 Rime 整合包 · 多设备一键更新',
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+      ],
+    );
+
+    if (compact) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              _buildLogo(theme),
+              const SizedBox(width: 12),
+              Expanded(child: title),
+              IconButton(
+                tooltip: '设置',
+                onPressed: _busy ? null : _openSettings,
+                icon: const Icon(Icons.settings_outlined),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            alignment: WrapAlignment.end,
+            spacing: 8,
+            runSpacing: 8,
+            children: _mainActions(),
+          ),
+        ],
+      );
+    }
+
     return Row(
       children: [
-        Container(
-          width: 40,
-          height: 40,
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(12),
-            gradient: LinearGradient(
-              colors: [
-                theme.colorScheme.primary,
-                theme.colorScheme.primary.withValues(alpha: 0.75),
-              ],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-            ),
-          ),
-          child: const Text(
-            '虎',
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: 20,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-        ),
+        _buildLogo(theme),
         const SizedBox(width: 12),
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              '芝士虎整 · 更新器',
-              style: theme.textTheme.titleLarge?.copyWith(
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            Text(
-              '虎码 Rime 整合包 · 多设备一键更新',
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
-            ),
-          ],
-        ),
+        title,
         const Spacer(),
         TextButton(onPressed: _busy ? null : _openSettings, child: const Text('设置')),
         const SizedBox(width: 4),
@@ -945,11 +1045,62 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  Widget _buildRemoteLine(ThemeData theme) {
+  List<Widget> _remoteActions() {
+    return [
+      TextButton.icon(
+        onPressed: _busy ? null : _openSync,
+        icon: const Icon(Icons.cloud_sync_outlined, size: 18),
+        label: const Text('云同步'),
+      ),
+      TextButton.icon(
+        onPressed: _busy ? null : _openSyncLibrary,
+        icon: const Icon(Icons.folder_open, size: 18),
+        label: const Text('同步库'),
+      ),
+      TextButton.icon(
+        onPressed: _busy ? null : _installFromGithub,
+        icon: const Icon(Icons.cloud_download_outlined, size: 18),
+        label: const Text('GitHub 方案'),
+      ),
+      TextButton.icon(
+        onPressed: _busy ? null : _switchScheme,
+        icon: const Icon(Icons.swap_horiz, size: 18),
+        label: const Text('换方案'),
+      ),
+      TextButton.icon(
+        onPressed: _busy ? null : _installLocalZip,
+        icon: const Icon(Icons.archive_outlined, size: 18),
+        label: const Text('从本地 zip 安装'),
+      ),
+    ];
+  }
+
+  Widget _buildRemoteLine(ThemeData theme, bool compact) {
     final text = _remoteVersion.isEmpty
         ? '远端最新：未检查'
         : '远端最新：v$_remoteVersion'
             '（${_remoteDelta ? '增量包' : '完整包'} · $_remoteAsset）';
+    if (compact) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            text,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+          Wrap(
+            alignment: WrapAlignment.end,
+            spacing: 4,
+            runSpacing: 0,
+            children: _remoteActions(),
+          ),
+        ],
+      );
+    }
     return Row(
       children: [
         Expanded(
@@ -962,31 +1113,7 @@ class _HomePageState extends State<HomePage> {
             ),
           ),
         ),
-        TextButton.icon(
-          onPressed: _busy ? null : _openSync,
-          icon: const Icon(Icons.cloud_sync_outlined, size: 18),
-          label: const Text('云同步'),
-        ),
-        TextButton.icon(
-          onPressed: _busy ? null : _openSyncLibrary,
-          icon: const Icon(Icons.folder_open, size: 18),
-          label: const Text('同步库'),
-        ),
-        TextButton.icon(
-          onPressed: _busy ? null : _installFromGithub,
-          icon: const Icon(Icons.cloud_download_outlined, size: 18),
-          label: const Text('GitHub 方案'),
-        ),
-        TextButton.icon(
-          onPressed: _busy ? null : _switchScheme,
-          icon: const Icon(Icons.swap_horiz, size: 18),
-          label: const Text('换方案'),
-        ),
-        TextButton.icon(
-          onPressed: _busy ? null : _installLocalZip,
-          icon: const Icon(Icons.archive_outlined, size: 18),
-          label: const Text('从本地 zip 安装'),
-        ),
+        ..._remoteActions(),
       ],
     );
   }
@@ -1016,12 +1143,13 @@ class _HomePageState extends State<HomePage> {
                     ),
                   ],
                   const Spacer(),
-                  IconButton(
-                    tooltip: '添加 Rime 目录',
-                    onPressed: _busy ? null : _addRimeDir,
-                    icon: const Icon(Icons.add, size: 20),
-                    visualDensity: VisualDensity.compact,
-                  ),
+                  if (!Platform.isAndroid)
+                    IconButton(
+                      tooltip: '添加 Rime 目录',
+                      onPressed: _busy ? null : _addRimeDir,
+                      icon: const Icon(Icons.add, size: 20),
+                      visualDensity: VisualDensity.compact,
+                    ),
                 ],
               ),
             ),

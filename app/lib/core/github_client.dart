@@ -204,6 +204,9 @@ class GithubClient {
   String get _cacheDir {
     final custom = settings.cacheDir.trim();
     if (custom.isNotEmpty) return custom;
+    if (Platform.isAndroid) {
+      return p.join(Directory.systemTemp.path, 'cheese-tiger');
+    }
     if (Platform.isWindows) {
       return p.join(
         Platform.environment['LOCALAPPDATA'] ?? Directory.systemTemp.path,

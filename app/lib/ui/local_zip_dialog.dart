@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 
 import '../core/local_package.dart';
+import 'dialog_size.dart';
 
 class LocalPackageOptions {
   const LocalPackageOptions({required this.path, required this.version});
@@ -69,7 +70,7 @@ class _LocalZipDialogState extends State<LocalZipDialog> {
     return AlertDialog(
       title: const Text('从本地 zip 安装'),
       content: SizedBox(
-        width: 520,
+        width: dialogWidth(context, 520),
         child: SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,

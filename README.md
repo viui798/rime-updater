@@ -71,7 +71,7 @@ Windows 版在 Windows 机器上执行 `flutter build windows`。
 可在「备份与回滚」中查看。配置保存在设置文件的 `sync_url` / `sync_user` /
 `sync_password` / `device_name` 字段。
 
-当前状态：界面与核心逻辑已完成，静态分析无问题，32 个测试（过滤规则、增量包解包、
+当前状态：界面与核心逻辑已完成，静态分析无问题，33 个测试（过滤规则、增量包解包、
 快照回滚、扁平/带目录 zip、版本推断、Rime 包识别、换方案备份与清理、手动目录与重命名、
 无变化跳过、云同步上传/删除/下载/在线编辑、同步库文件树、WebDAV 客户端、首页与弹窗渲染）
 全部通过；macOS 安装包已构建并实跑验证
@@ -81,7 +81,7 @@ Windows 版在 Windows 机器上执行 `flutter build windows`。
 
 Windows 版代码路径已完成（窗口标题、ico 图标、注册表探测），但需要在 Windows 上构建。
 仓库自带 GitHub Actions（`.github/workflows/build.yml`），推 tag 时会自动构建
-macOS DMG 与 Windows zip 并创建 Release。
+macOS DMG、Windows zip 与 Android APK 并创建 Release；也可以在 Actions 页面手动触发。
 
 本机 Xcode 装在 `/Applications/Xcode-16.2.0.app`。如果 `xcode-select` 仍指向命令行工具，
 构建时加 `DEVELOPER_DIR`：
@@ -89,6 +89,19 @@ macOS DMG 与 Windows zip 并创建 Release。
 ```bash
 DEVELOPER_DIR=/Applications/Xcode-16.2.0.app/Contents/Developer flutter build macos
 ```
+
+## Android（同文 / Trime）
+
+`app/` 同一套代码也能构建成 Android 应用，目前按同文输入法（Trime）的默认目录设计：
+
+- 首次启动会请求「所有文件访问权限」（MANAGE_EXTERNAL_STORAGE），用于直接读写
+  `/storage/emulated/0/rime`；该权限只适合自用分发，不适合上架 Google Play；
+- 自动识别 `/storage/emulated/0/rime` 与旧版
+  `/storage/emulated/0/Android/data/com.osfans.trime/files/rime`；
+- 更新、预演、本地 zip 安装、云同步、同步库都可直接使用；手动添加目录入口在 Android 上隐藏；
+- 更新器无法调用 Trime 的部署接口，复制完成后请在 Trime 里点右上角刷新图标重新部署；
+- 构建：`flutter build apk --debug`（需要 JDK 17 + Android SDK 36），产物
+  `app/build/app/outputs/flutter-apk/app-debug.apk`，拷到手机安装即可。
 
 ## 备用界面（Python）
 
@@ -195,7 +208,7 @@ python3 backup_userdata.py --restore <备份.zip> --target ~/Library/Rime --yes
 ## 当前边界
 
 - Windows（小狼毫 / 虎韵）代码路径已实现，尚未在 Windows 实机验证，首次使用建议先 `--dry-run`；
-- Android / iOS 尚未接入，仍需手动同步；
+- Android（同文 / Trime）客户端已在模拟器（API 35）跑通检查、预演与正式更新，待真机验证；iOS 尚未接入；
 - 只解决文件传输，方案编译由各前端自己的部署流程完成。
 
 ## 许可证

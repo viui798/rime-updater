@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../core/settings_store.dart';
 import '../models.dart';
+import 'dialog_size.dart';
 
 class SettingsDialog extends StatefulWidget {
   const SettingsDialog({super.key, required this.settings});
@@ -62,7 +63,7 @@ class _SettingsDialogState extends State<SettingsDialog> {
     return AlertDialog(
       title: const Text('设置'),
       content: SizedBox(
-        width: 500,
+        width: dialogWidth(context, 500),
         child: SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,

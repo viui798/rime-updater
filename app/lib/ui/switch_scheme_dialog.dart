@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 
 import '../core/local_package.dart';
+import 'dialog_size.dart';
 import '../core/scheme_switcher.dart';
 import 'local_zip_dialog.dart';
 
@@ -62,7 +63,7 @@ class _SwitchSchemeDialogState extends State<SwitchSchemeDialog> {
     return AlertDialog(
       title: const Text('换方案'),
       content: SizedBox(
-        width: 540,
+        width: dialogWidth(context, 540),
         child: SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,

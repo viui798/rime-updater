@@ -7,6 +7,7 @@ import '../core/settings_store.dart';
 import '../core/sync_service.dart';
 import '../core/webdav_client.dart';
 import '../models.dart';
+import 'dialog_size.dart';
 
 /// 云同步弹窗：配置 WebDAV，管理同步库文件，并上传 / 下载个人数据。
 /// 关闭时返回最新的设置，由调用方写入设置文件。
@@ -438,7 +439,7 @@ class _SyncDialogState extends State<SyncDialog> {
         ],
       ),
       content: SizedBox(
-        width: 560,
+        width: dialogWidth(context, 560),
         child: SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,

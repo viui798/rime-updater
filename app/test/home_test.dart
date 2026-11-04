@@ -37,6 +37,21 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('手机窄屏布局不溢出', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(420, 800));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(
+      const MaterialApp(home: HomePage()),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('检查更新'), findsOneWidget);
+    expect(find.text('云同步'), findsOneWidget);
+    expect(find.text('同步库'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('设置弹窗可以打开并展开高级设置', (tester) async {
     await tester.binding.setSurfaceSize(const Size(1000, 760));
     addTearDown(() => tester.binding.setSurfaceSize(null));

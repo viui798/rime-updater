@@ -10,6 +10,9 @@ const backupDirName = '.cheese-tiger-backup';
 const bigModel = 'models/sentence-fivegram-mobile.bin';
 const backupMaxBytes = 32 * 1024 * 1024;
 
+/// Trime（同文输入法）默认的用户目录。
+const androidRimeDir = '/storage/emulated/0/rime';
+
 const runtimeDirs = ['lua/', 'opencc/', 'models/', 'dicts/', 'tiger_dicts/', 'zuci/'];
 const excludeDirs = ['tools/', 'docs/', 'sync/', 'validation/', '手机精简版/', 'build/'];
 const excludeNames = {
@@ -58,6 +61,7 @@ bool looksLikeRimeDir(String path) {
     'tiger.schema.yaml',
     'default.custom.yaml',
     'rime.lua',
+    'installation.yaml',
   ]) {
     if (File(p.join(path, name)).existsSync()) return true;
   }
@@ -86,6 +90,13 @@ List<Profile> detectProfiles() {
         'Library/Application Support/com.ihsiao.inputmethod.Cobra/RimeUserData',
       ),
       'cobra',
+    );
+  } else if (Platform.isAndroid) {
+    add('同文（Trime）', androidRimeDir, 'trime');
+    add(
+      '同文（旧版）',
+      '/storage/emulated/0/Android/data/com.osfans.trime/files/rime',
+      'trime',
     );
   } else if (Platform.isWindows) {
     if (appDataDir.isNotEmpty) {
