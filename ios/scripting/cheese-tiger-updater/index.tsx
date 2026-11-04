@@ -176,7 +176,7 @@ function UpdaterView() {
           <Text foregroundStyle="secondaryLabel">
             在「文件」App 里选 我的 iPhone/Hamster/Rime 或元书的用户目录。
           </Text>
-          <Button action={pickFolder}>选择目录</Button>
+          <Button title="选择目录" action={pickFolder} />
         </Section>
 
         <Section header={<Text>远端</Text>}>
@@ -186,51 +186,54 @@ function UpdaterView() {
               : "未检查"}
           </Text>
           <Text foregroundStyle="secondaryLabel">
-            上次安装：{config.installedVersion || "无"}
+            {`上次安装：${config.installedVersion || "无"}`}
           </Text>
-          <Button action={check} disabled={busy}>
-            检查更新
-          </Button>
+          <Button
+            title="检查更新"
+            action={check}
+            disabled={busy}
+          />
         </Section>
 
         <Section header={<Text>安装</Text>}>
-          <Button action={install} disabled={busy}>
-            {remote ? `下载并安装 v${remote.version}` : "下载并安装"}
-          </Button>
+          <Button
+            title={remote ? `下载并安装 v${remote.version}` : "下载并安装"}
+            action={install}
+            disabled={busy}
+          />
           {busy && percent > 0 ? (
             <Text foregroundStyle="secondaryLabel">
-              下载 {Math.round(percent * 100)}%
+              {`下载 ${Math.round(percent * 100)}%`}
             </Text>
           ) : null}
         </Section>
 
         <Section header={<Text>部署方式</Text>}>
           <Text>
-            当前：{config.inputMethod === "hamster"
-              ? "仓输入法"
-              : config.inputMethod === "hamster3"
-                ? "元书"
-                : "手动部署"}
+            {`当前：${
+              config.inputMethod === "hamster"
+                ? "仓输入法"
+                : config.inputMethod === "hamster3"
+                  ? "元书"
+                  : "手动部署"
+            }`}
           </Text>
           <Button
+            title="用仓输入法部署"
             action={() =>
               updateConfig({ ...config, inputMethod: "hamster" })
             }
-          >
-            用仓输入法部署
-          </Button>
+          />
           <Button
+            title="用元书部署"
             action={() =>
               updateConfig({ ...config, inputMethod: "hamster3" })
             }
-          >
-            用元书部署
-          </Button>
+          />
           <Button
+            title="手动部署"
             action={() => updateConfig({ ...config, inputMethod: "none" })}
-          >
-            手动部署
-          </Button>
+          />
         </Section>
 
         <Section header={<Text>日志</Text>}>
