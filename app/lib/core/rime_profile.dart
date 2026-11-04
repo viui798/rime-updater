@@ -1,0 +1,280 @@
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:path/path.dart' as p;
+
+import '../models.dart';
+
+const markerFile = '.cheese-tiger-version';
+const backupDirName = '.cheese-tiger-backup';
+const bigModel = 'models/sentence-fivegram-mobile.bin';
+const backupMaxBytes = 32 * 1024 * 1024;
+
+const runtimeDirs = ['lua/', 'opencc/', 'models/', 'dicts/', 'tiger_dicts/', 'zuci/'];
+const excludeDirs = ['tools/', 'docs/', 'sync/', 'validation/', '手机精简版/', 'build/'];
+const excludeNames = {
+  'AGENTS.md',
+  'README.md',
+  'CHANGELOG.md',
+  'LICENSE',
+  '安装说明.txt',
+  '安装与更新说明.txt',
+  'RELEASE.json',
+  'SHA256SUMS.txt',
+  'SOURCE_BASELINE.md',
+  'RIME_CORRECTNESS.md',
+  'IOS_TEST_README.md',
+};
+const userDataFiles = {
+  'user.yaml',
+  'installation.yaml',
+  'reverse_freq.txt',
+  'custom_phrase.txt',
+};
+const userDataSuffixes = [
+  '.userdb',
+  '.options.yaml',
+  '.log',
+  '.md',
+  '.zip',
+  '.sha256',
+];
+const userDataLua = {'kc_count.txt', 'kc_total.txt'};
+
+String get homeDir {
+  if (Platform.isWindows) {
+    return Platform.environment['USERPROFILE'] ?? '';
+  }
+  return Platform.environment['HOME'] ?? '';
+}
+
+String get appDataDir => Platform.environment['APPDATA'] ?? '';
+
+String get localAppDataDir => Platform.environment['LOCALAPPDATA'] ?? '';
+
+bool looksLikeRimeDir(String path) {
+  for (final name in const [
+    'tiger_sentence.schema.yaml',
+    'tiger.schema.yaml',
+    'default.custom.yaml',
+    'rime.lua',
+  ]) {
+    if (File(p.join(path, name)).existsSync()) return true;
+  }
+  return false;
+}
+
+List<Profile> detectProfiles() {
+  final profiles = <Profile>[];
+  final seen = <String>{};
+
+  void add(String label, String path, String kind) {
+    final clean = p.normalize(path);
+    if (!Directory(clean).existsSync()) return;
+    if (!looksLikeRimeDir(clean)) return;
+    if (!seen.add(clean)) return;
+    profiles.add(Profile(label: label, path: clean, kind: kind));
+  }
+
+  if (Platform.isMacOS) {
+    add('鼠须管', p.join(homeDir, 'Library/Rime'), 'squirrel');
+    add('小企鹅', p.join(homeDir, '.local/share/fcitx5/rime'), 'fcitx5');
+    add(
+      '元书',
+      p.join(
+        homeDir,
+        'Library/Application Support/com.ihsiao.inputmethod.Cobra/RimeUserData',
+      ),
+      'cobra',
+    );
+  } else if (Platform.isWindows) {
+    if (appDataDir.isNotEmpty) {
+      add('小狼毫', p.join(appDataDir, 'Rime'), 'weasel');
+    }
+    for (final root in [appDataDir, localAppDataDir]) {
+      if (root.isEmpty || !Directory(root).existsSync()) continue;
+      _scanWindows(root, 1, (found) {
+        add(p.basename(found), found, 'unknown');
+      });
+    }
+  }
+  return profiles;
+}
+
+void _scanWindows(
+  String path,
+  int depth,
+  void Function(String path) onFound,
+) {
+  if (depth > 4) return;
+  Directory dir;
+  try {
+    dir = Directory(path);
+    if (!dir.existsSync()) return;
+  } on FileSystemException {
+    return;
+  }
+
+  if (looksLikeRimeDir(path)) onFound(path);
+
+  List<FileSystemEntity> entries;
+  try {
+    entries = dir.listSync(followLinks: false);
+  } on FileSystemException {
+    return;
+  }
+
+  for (final entry in entries) {
+    if (entry is! Directory) continue;
+    final name = p.basename(entry.path);
+    if (name == 'Cache' ||
+        name == 'Code Cache' ||
+        name == 'GPUCache' ||
+        name == 'logs') {
+      continue;
+    }
+    _scanWindows(entry.path, depth + 1, onFound);
+  }
+}
+
+List<Profile> profilesFromPaths(
+  List<String> paths, {
+  Map<String, String> names = const {},
+}) {
+  final profiles = <Profile>[];
+  final seen = <String>{};
+  for (final raw in paths) {
+    final path = p.normalize(raw.trim());
+    if (path.isEmpty || !Directory(path).existsSync()) continue;
+    if (!looksLikeRimeDir(path)) continue;
+    if (!seen.add(path)) continue;
+    final label = names[path]?.trim();
+    profiles.add(Profile(
+      label: label != null && label.isNotEmpty ? label : p.basename(path),
+      path: path,
+      kind: 'unknown',
+    ));
+  }
+  return profiles;
+}
+
+String readLocalVersion(String dir) {
+  final marker = File(p.join(dir, markerFile));
+  if (marker.existsSync()) {
+    final text = marker.readAsStringSync().trim();
+    if (text.isNotEmpty) {
+      return text.startsWith('v') ? text.substring(1) : text;
+    }
+  }
+  final changelog = File(p.join(dir, 'CHANGELOG.md'));
+  if (changelog.existsSync()) {
+    for (final line in changelog.readAsLinesSync()) {
+      if (line.startsWith('## v')) {
+        var version = line.substring(3).split('（').first.trim();
+        if (version.startsWith('v')) version = version.substring(1);
+        return version.trim();
+      }
+    }
+  }
+  return '';
+}
+
+bool shouldCopy(String rel, {int size = 0, String target = ''}) {
+  final name = p.basename(rel);
+
+  for (final dir in excludeDirs) {
+    if (rel.startsWith(dir)) return false;
+  }
+  if (excludeNames.contains(name)) return false;
+
+  for (final part in rel.split('/')) {
+    if (part.endsWith('.userdb')) return false;
+  }
+  if (userDataFiles.contains(name)) return false;
+  for (final suffix in userDataSuffixes) {
+    if (name.endsWith(suffix)) return false;
+  }
+  if (name.endsWith('.md')) return false;
+
+  final parts = rel.split('/');
+  if (parts.length == 2 && parts.first == 'lua') {
+    if (name.startsWith('input_stats_') && name.endsWith('.lua')) return false;
+    if (userDataLua.contains(name)) return false;
+  }
+
+  for (final dir in runtimeDirs) {
+    if (rel.startsWith(dir)) {
+      if (rel == bigModel && size > 0 && target.isNotEmpty) {
+        final existing = File(p.join(target, bigModel));
+        if (existing.existsSync() && existing.lengthSync() == size) {
+          return false;
+        }
+      }
+      return true;
+    }
+  }
+  return name.endsWith('.yaml') ||
+      name.endsWith('.txt') ||
+      name.endsWith('.json') ||
+      name.endsWith('.lua');
+}
+
+/// 删除某个用户目录下的全部快照，返回删除的份数。
+int clearBackups(String dir) {
+  final root = Directory(p.join(dir, backupDirName));
+  if (!root.existsSync()) return 0;
+  final count = root
+      .listSync()
+      .whereType<Directory>()
+      .where((entry) => !p.basename(entry.path).startsWith('.'))
+      .length;
+  root.deleteSync(recursive: true);
+  return count;
+}
+
+List<BackupInfo> listBackups(String dir) {
+  final root = Directory(p.join(dir, backupDirName));
+  if (!root.existsSync()) return const [];
+
+  final children = root.listSync().whereType<Directory>().toList()
+    ..sort((a, b) => p.basename(b.path).compareTo(p.basename(a.path)));
+
+  final items = <BackupInfo>[];
+  for (final child in children) {
+    final manifest = File(p.join(child.path, 'manifest.json'));
+    var version = '';
+    var previous = '';
+    var overwritten = 0;
+    var created = 0;
+    var deleted = 0;
+    if (manifest.existsSync()) {
+      try {
+        final data = _decodeJson(manifest.readAsStringSync());
+        version = data['version'] as String? ?? '';
+        previous = data['previous_version'] as String? ?? '';
+        overwritten = (data['overwritten'] as List?)?.length ?? 0;
+        created = (data['created'] as List?)?.length ?? 0;
+        deleted = (data['deleted'] as List?)?.length ?? 0;
+      } catch (_) {
+        // 损坏的 manifest 只展示时间戳
+      }
+    }
+    items.add(
+      BackupInfo(
+        stamp: p.basename(child.path),
+        version: version,
+        previousVersion: previous,
+        overwritten: overwritten,
+        created: created,
+        deleted: deleted,
+      ),
+    );
+  }
+  return items;
+}
+
+Map<String, dynamic> _decodeJson(String text) {
+  final decoded = jsonDecode(text);
+  if (decoded is Map<String, dynamic>) return decoded;
+  return <String, dynamic>{};
+}

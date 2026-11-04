@@ -1,7 +1,7 @@
 # rime 更新器
 
 给 [芝士虎整](https://github.com/viui798/viui-tiger-sentense)（虎码 Rime 整合包）用的多设备一键更新工具。
-提供图形界面与命令行两种用法，只用 Python 3 标准库，不需要安装依赖。
+主客户端是 Flutter 写的原生桌面应用，另附纯标准库的 Python 命令行实现。
 
 进度、设计决策与后续计划见 [AGENTS.md](AGENTS.md)。
 
@@ -16,21 +16,88 @@
 - 按前端执行部署 / 重启；
 - 更新前完整快照，出问题可一键回滚。
 
-## 图形界面
+## 原生桌面应用（Flutter）
+
+`app/` 是跨平台客户端：一套 Dart 代码，同一个原生窗口界面覆盖 macOS 与 Windows，
+后续接 Android / iOS 也可以复用。
 
 ```bash
-python3 gui_app.py          # 启动后自动打开浏览器
+cd app
+flutter pub get
+flutter test            # 纯 Dart 验证，不需要 Xcode
+flutter run -d macos    # 需要完整 Xcode
+flutter build macos     # 产物：build/macos/Build/Products/Release/RimeUpdater.app
 ```
 
-macOS 上也可以打包成可双击的软件：
+Windows 版在 Windows 机器上执行 `flutter build windows`。
+
+界面包含：设备列表与当前版本、检查更新、一键更新、仅预演、实时日志与进度、
+设置（仓库 / 代理 / Token / 缓存目录 / 自动部署 / 重启 / 快照）、备份列表与一键回滚，
+以及**从本地 zip 安装**：可以选择任意方案压缩包（雾凇拼音、白霜等）装到选中的设备，
+个人数据不会被覆盖，安装前同样会自动快照。设备识别不全时，点设备区右上角的「+」
+可以手动指定 Rime 用户目录，选择结果会保存在设置里；手动添加的设备可以点铅笔图标改名。
+设备、日志、备份三块区域之间的分隔条可以拖动调整高度，双击分隔条恢复默认。
+检查更新时日志会标注「（最新）」或「（可更新）」，备份区右上角可以一键「清理备份」。
+启动时**不会自动联网**：只有点「检查更新」才会请求 GitHub；检查结果在 10 分钟内会被
+「仅预演 / 一键更新」复用，避免重复消耗 API 额度（匿名请求只有 60 次/小时）。
+
+**换方案向导**会按顺序完成：备份个人数据 → 清空旧方案的运行文件 → 安装新包 →
+恢复个人数据并重新部署。切换前的个人数据保存在
+`~/Library/Application Support/CheeseTigerUpdater/switch-backups/<时间戳>/<前端名>/`。
+
+**GitHub 方案**入口支持填入任意方案仓库地址（如
+`https://github.com/iDvel/rime-ice`），读取最近一次 Release 的 zip 资产，
+选择后下载并安装到勾选的设备；带 `-update.zip` 的资产会优先选中。
+雾凇拼音的 `full.zip` 已用预演验证：识别为 68 个文件，用户数据正常跳过。
+
+**云同步（WebDAV）**：点远端行的「云同步」，填入 WebDAV 地址、用户名、密码与本机名称
+（坚果云、Nextcloud 等均可），勾选设备后：
+
+- 「上传本机」：把个人数据（自造词、调频、开关记忆、统计与 `*.userdb`）放进同步库；
+- 「添加文件」：从该设备目录里单独选一个文件加入同步库（主题、自定义补丁等也行）；
+- 「下载云端」：把同步库里全部文件写回本机，覆盖前自动备份，并按设置自动部署；
+- 展开「同步库文件」可以看到每个文件的来源设备与上传时间，点垃圾桶可从云端删除
+  （只删云端，本机文件不动；`*.userdb` 会显示为一项并整组删除，避免删坏词典数据库）。
+
+主界面另有「同步库」入口，是一个文件夹形式的文件管理器：根目录列出各个端，
+点进去按目录层级浏览同步库里的文件；右上角「+」可以从任意一端挑一个文件上传，
+点文件可以在线编辑文本（yaml / txt / lua / json 等），也能直接删除云端那份。
+`*.userdb` 在列表里显示为不可展开的一项，删除时整组移除。
+
+云端目录是 `CheeseTigerSync/<前端>/files/<相对路径>`，同目录的 `manifest.json`
+记录文件清单、上传设备与时间；同步库按前端共用，方案文件与模型不建议放进去。
+覆盖前的备份在
+`~/Library/Application Support/CheeseTigerUpdater/switch-backups/<时间戳>/<前端名>-同步前/`，
+可在「备份与回滚」中查看。配置保存在设置文件的 `sync_url` / `sync_user` /
+`sync_password` / `device_name` 字段。
+
+当前状态：界面与核心逻辑已完成，静态分析无问题，32 个测试（过滤规则、增量包解包、
+快照回滚、扁平/带目录 zip、版本推断、Rime 包识别、换方案备份与清理、手动目录与重命名、
+无变化跳过、云同步上传/删除/下载/在线编辑、同步库文件树、WebDAV 客户端、首页与弹窗渲染）
+全部通过；macOS 安装包已构建并实跑验证
+（三前端识别、远端 v0.3.23、预演 8 个文件），带老虎主题应用图标。产物在
+`app/build/macos/Build/Products/Release/RimeUpdater.app`，DMG 由
+`cd app && ./tool/make_dmg.sh` 生成。
+
+Windows 版代码路径已完成（窗口标题、ico 图标、注册表探测），但需要在 Windows 上构建。
+仓库自带 GitHub Actions（`.github/workflows/build.yml`），推 tag 时会自动构建
+macOS DMG 与 Windows zip 并创建 Release。
+
+本机 Xcode 装在 `/Applications/Xcode-16.2.0.app`。如果 `xcode-select` 仍指向命令行工具，
+构建时加 `DEVELOPER_DIR`：
 
 ```bash
-python3 build_app.py        # 生成 dist/RimeUpdater.app
+DEVELOPER_DIR=/Applications/Xcode-16.2.0.app/Contents/Developer flutter build macos
 ```
 
-界面里可以：查看各设备当前版本、检查远端最新、一键更新或仅预演、看实时日志与进度、
-改设置（仓库 / 代理 / Token / 缓存目录 / 是否部署重启 / 是否快照）、按备份回滚。
-Windows 下运行 `python3 build_app.py` 会生成 `dist/启动更新器.bat`。
+## 备用界面（Python）
+
+```bash
+python3 gui_app.py          # 启动本地界面，自动打开浏览器
+python3 build_app.py        # 生成基于 Python 的 dist/RimeUpdater.app 与 Windows 启动器
+```
+
+Python 版在浏览器里操作，功能与 Flutter 版一致，适合不想装 Flutter 环境的机器。
 
 ## 命令行
 

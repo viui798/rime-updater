@@ -20,31 +20,87 @@
 
 ## 2. 当前状态（2026-11-04）
 
-- `update_desktop.py`：核心逻辑 + 命令行（纯标准库）
-- `gui_app.py`：本地 Web UI 服务（`127.0.0.1:8765`），提供检查/更新/回滚/设置与任务日志
-- `web/`：界面（`index.html` / `app.js` / `style.css`），无外部依赖、无 CDN
-- `build_app.py`：打包 macOS `dist/RimeUpdater.app`、Windows `dist/启动更新器.bat`
-- 已实测：mac 鼠须管 / 小企鹅（Fcitx5）/ 元书（Cobra）三前端，v0.3.23 增量包 8 文件、
-  SHA256 通过、`Squirrel --reload` 与 `fcitx5-curl` 部署执行成功、元书提示手动
-- 图形界面已用浏览器实测：设备卡片、设置弹窗、检查、预演全流程通过，控制台无报错
+- `app/`：**主客户端**，Flutter 原生桌面应用（Dart），一套代码覆盖 macOS / Windows，
+  平台目录已生成（macos / windows / android / ios）；界面为 Material 3 原生窗口
+- `app/` 已验证：`dart analyze` 无问题，`flutter test` 32 项通过（过滤规则、增量包解包、
+  快照回滚、扁平/带目录 zip、版本推断、Rime 包识别、换方案备份与清理、手动目录与重命名、
+  无变化跳过、云同步上传/删除/下载/在线编辑、同步库文件树、WebDAV 客户端、首页与弹窗渲染）
+- **启动不自动请求 GitHub**：打开 App 只有本地探测；点「检查更新」才发请求，检查结果
+  缓存 10 分钟，期间「仅预演 / 一键更新」复用同一 ReleaseInfo，不再重复请求
+- 设备区右上角「+」可手动指定 Rime 用户目录，保存到设置的 `custom_dirs`，
+  名称存在 `custom_names`，手动设备可点铅笔改名
+- 支持**从本地 zip 安装**任意方案包（不限芝士虎整）：沿用同一套用户数据过滤、快照与部署；
+  zip 前缀会自动识别 `update/`、单层方案目录或扁平结构
+- **换方案向导**：备份个人数据 → 清空旧运行文件（lua/opencc/models/dicts 等与根目录旧
+  yaml）→ 安装新包 → 恢复个人数据 → 部署；备份在
+  `~/Library/Application Support/CheeseTigerUpdater/switch-backups/<时间戳>/<前端名>/`
+- **云同步（WebDAV，按前端共用同步库）**：远端行「云同步」弹窗配置地址 / 账号 / 密码 /
+  本机名称；云端结构 `CheeseTigerSync/<kind>/files/<相对路径>` + 同目录 `manifest.json`
+  （`devices` 与 `files` 两个列表，后者记录 `path/by/by_name/at`）。
+  「上传本机」按 `collectUserData` 批量上传（含 `*.userdb` 目录会展开成具体文件）；
+  「添加文件」用系统文件选择框只上传单个文件（限制在该设备目录内）；
+  「下载云端」写入同步库全部文件，覆盖前 `backupUserData` 到 `switch-backups`，
+  成功后按设置自动部署；文件列表里可单个删除云端文件（DELETE，本机不动），
+  `*.userdb` 在界面上合并成一组、整组删除；配置好的地址下次打开弹窗会自动读取清单。
+  设备 ID 持久化在 `<appSupport>/sync-state.json`。未用 PROPFIND / 目录列表
+- **同步库文件管理器**：主界面「同步库」入口打开 `SyncLibraryDialog`（700×520 的 Dialog）：
+  根层列出勾选的各端，进入后按 `listEntries` 把文件路径渲染成文件夹树；
+  右上角「+」可上传（根层先选端，进层后直接用当前端，限制在该端目录内）；
+  点文本文件（yaml/txt/lua/json/md 等）可在线编辑并保存回云端（`writeCloudFile` 更新清单时间），
+  点 `*.userdb` 或二进制文件显示说明并可整组删除
+- **macOS 安装包已产出**：`app/build/macos/Build/Products/Release/RimeUpdater.app`（45.6MB），
+  实跑确认窗口标题、三前端识别、远端 v0.3.23 检查与预演 8 文件均正常
+- 本机 Xcode 安装在 `/Applications/Xcode-16.2.0.app`，全局 `xcode-select` 仍指向
+  CommandLineTools；构建时用
+  `DEVELOPER_DIR=/Applications/Xcode-16.2.0.app/Contents/Developer flutter build macos`，
+  或执行一次 `sudo xcode-select --switch /Applications/Xcode-16.2.0.app/Contents/Developer`
+- **已关闭 App Sandbox**：Flutter 模板默认开启沙盒，会禁止读取 `~/Library/Rime` 与联网，
+  已从 `macos/Runner/{DebugProfile,Release}.entitlements` 移除 `app-sandbox`
+- `update_desktop.py`：Python 核心逻辑 + 命令行（纯标准库，作为参照实现与 CLI 保留）
+- `gui_app.py`：Python 本地 Web UI 服务（`127.0.0.1:8765`），作为备用界面
+- `web/`：Python 版界面（`index.html` / `app.js` / `style.css`）
+- `build_app.py`：Python 版打包，生成 macOS `dist/RimeUpdater.app`、Windows 启动器
+- Python 版已实测：mac 鼠须管 / 小企鹅（Fcitx5）/ 元书（Cobra）三前端，v0.3.23 增量包
+  8 文件、SHA256 通过、部署执行成功、元书提示手动
 - 快照与回滚已在临时目录实测：覆盖/新增/删除均能正确还原，版本标记同步回退
-- 远端选择已验证：`--check` 优先选中 `cheese-tiger-v0.3.23-update.zip`
+- 远端选择已验证：优先选中 `cheese-tiger-v0.3.23-update.zip`
 - 匿名可访问：不设 `GITHUB_TOKEN` 也能拉取 Release（token 仅避开 API 限流）
 - Windows（小狼毫 / 虎韵）代码路径已写，**未在 Windows 实机验证**
-- Android / iOS 未接入
+- Android / iOS 平台目录已生成，但更新逻辑尚未接入
 
 ## 3. 文件说明
 
 | 文件 | 说明 |
 |---|---|
-| `update_desktop.py` | 核心：profile 探测、资产选择、下载校验、解包应用、部署、快照/回滚 |
+| `app/` | Flutter 主客户端：`lib/main.dart`、`lib/core/`、`lib/ui/`、`test/` |
+| `app/lib/core/rime_profile.dart` | 前端探测、版本读取、`shouldCopy` 过滤、备份列表 |
+| `app/lib/core/github_client.dart` | Release 拉取、下载、SHA256 校验、缓存 |
+| `app/lib/core/zip_installer.dart` | 增量包解包、快照、回滚（基于 `archive` 包） |
+| `app/lib/core/deployer.dart` | 按前端执行部署 / 重启命令 |
+| `app/lib/core/webdav_client.dart` | 极简 WebDAV 客户端：MKCOL / PUT / GET / DELETE + Basic Auth（路径逐段编码） |
+| `app/lib/core/sync_service.dart` | 云同步：同步库清单、文件树、上传/删除/下载、在线编辑 |
+| `app/lib/ui/sync_dialog.dart` | 云同步弹窗：WebDAV 配置、同步库文件管理、上传 / 下载 |
+| `app/lib/ui/sync_library_dialog.dart` | 文件夹式同步库管理器：浏览、上传、在线编辑、删除 |
+| `app/lib/core/settings_store.dart` | 设置读写（与 Python 版同一路径） |
+| `update_desktop.py` | Python 核心：profile 探测、资产选择、下载校验、解包应用、部署、快照/回滚 |
 | `backup_userdata.py` | 用户数据备份 / 恢复：个人数据打包 zip，`--restore` 解回用户目录 |
-| `gui_app.py` | 本地 HTTP 服务与界面 API，调用核心逻辑 |
-| `web/` | 界面资源，随服务一起提供 |
-| `build_app.py` | 生成 macOS `.app` 与 Windows 启动器 |
+| `gui_app.py` | Python 本地 HTTP 服务与界面 API，调用核心逻辑 |
+| `web/` | Python 版界面资源，随服务一起提供 |
+| `build_app.py` | 生成 Python 版 macOS `.app` 与 Windows 启动器 |
 | `README.md` | 面向使用者的说明 |
 | `LICENSE` | GPL-3.0，与方案包一致 |
 | `dist/` | 打包产物，已在 `.gitignore`，不要提交 |
+
+Flutter 端关键点：
+
+- `main.dart` 是单页 `HomePage`：设备表（含勾选）、远端版本、进度条、日志、备份列表；
+  设置用弹窗，操作前有确认对话框；
+- `detectProfiles()`：mac 三条固定路径；Windows `%APPDATA%\Rime` + 深度 ≤4 扫描；
+- `applyZip()` 与 Python `apply_zip()` 行为一致：白名单跳过用户数据、`full_required`
+  自动改用完整包、快照写 `manifest.json`、超大文件只记录不备份；
+- 所有网络请求走 `dart:io HttpClient`，支持 HTTP 代理（**不支持 socks5**，Dart 桌面端限制）；
+- `flutter create` 生成的平台目录已按 `com.viui798` 组织，窗口标题与初始尺寸在
+  `app/macos/Runner/MainFlutterWindow.swift` 中设置。
 
 脚本内部关键点：
 
@@ -89,13 +145,36 @@
    `WeaselServer /q` + `WeaselDeployer /deploy`；元书没有 CLI 部署接口，只能提示或重启。
 6. **只用标准库**：用户机器不一定有 pip 环境；代理通过 `urllib` ProxyHandler 支持。
 7. **不做自动升级自身**：脚本从仓库直接运行时没有可靠的自我替换路径，先保持手动。
-8. **界面用本地 Web 而不是原生 GUI**：复用全部核心逻辑、跨平台一致，
-   也避免引入 Tkinter 之外的第三方界面库；`.app` 只是薄启动壳，逻辑仍在 Python 里。
+8. **主界面改用 Flutter**：一套 Dart 代码同时覆盖 macOS / Windows（后续 Android / iOS），
+   是真正的原生窗口而不是浏览器页面；Python 版 Web 界面保留为备用。
 9. **快照上限 32MB**：模型文件太大，全部快照会让磁盘翻倍；超大文件只记录、不复制，
    回滚时明确提示无法恢复。
 10. **任务串行**：同一时刻只允许一个更新 / 回滚任务，避免两个进程同时写同一目录。
+11. **设置文件两个客户端共用**：Flutter 与 Python 都读写
+    `~/Library/Application Support/CheeseTigerUpdater/settings.json`
+    （Windows 为 `%LOCALAPPDATA%\cheese-tiger\updater-settings.json`），切换客户端不用重配。
+12. **云同步用「共用文件库」而不是整包 zip**：云端按前端存
+    `CheeseTigerSync/<kind>/files/<相对路径>`，`manifest.json` 记录每个文件的来源设备与时间。
+    好处是可以只上传 / 删除单个文件，不用为了改一个文件重传整包；也不用依赖 WebDAV 的
+    PROPFIND。代价是文件多时请求数多（个人数据通常十几到几十个，可接受）。
+    批量上传仍以 `collectUserData` 白名单为默认，避免把模型和方案文件传上去。
 
-## 5. 验证清单（改脚本后必跑）
+## 5. 验证清单（改代码后必跑）
+
+Flutter 客户端：
+
+```bash
+cd app
+dart analyze                      # 静态分析
+flutter test                      # 过滤规则 / 解包 / 快照回滚 / 界面渲染
+dart run tool/verify.dart         # 真实下载（走缓存）+ 对首个目录预演，不需要打开界面
+
+# Xcode 未设为默认时：
+DEVELOPER_DIR=/Applications/Xcode-16.2.0.app/Contents/Developer flutter build macos
+# 产物：build/macos/Build/Products/Release/RimeUpdater.app
+```
+
+Python 侧（改脚本时）：
 
 ```bash
 python3 -m py_compile update_desktop.py gui_app.py
@@ -112,17 +191,12 @@ python3 update_desktop.py --source ~/Desktop/输入法/芝士虎整/cheese-tiger
 # 4) 单目录验证，避免动真实用户目录
 python3 update_desktop.py --target /tmp/rime-test --dry-run --yes
 
-# 5) 界面
+# 5) 备用界面
 python3 gui_app.py --port 8766 --no-browser &
 curl -s http://127.0.0.1:8766/api/state
-curl -s -X POST http://127.0.0.1:8766/api/run -d '{"action":"check"}'
-curl -s http://127.0.0.1:8766/api/job
-
-# 6) 打包
-python3 build_app.py && ./dist/RimeUpdater.app/Contents/MacOS/RimeUpdater
 ```
 
-真实更新前建议先 `--dry-run`；`--deploy` 会不会打断输入取决于前端，元书/小企鹅可加 `--restart`。
+真实更新前建议先「仅预演」；部署会不会打断输入取决于前端，元书/小企鹅可勾选“重启前端”。
 回滚逻辑验证时，用临时目录构造旧文件 + 快照，确认 `manifest.json` 与实际还原一致。
 
 ## 6. 已完成的工作记录
@@ -144,23 +218,67 @@ python3 build_app.py && ./dist/RimeUpdater.app/Contents/MacOS/RimeUpdater
 10. 用户数据备份：`backup_userdata.py` 收集自造词、调频、选项、自学习、统计、击键、
    主题与 `*.userdb`，按前端各打一个 zip（含 `BACKUP.json`），`--restore` 可解回；
     鼠须管实测 16 项 / 207KB，备份与恢复后文件逐字节一致。未改任何运行时路径。
+11. Flutter 客户端：新建 `app/`（`flutter create` 生成 macos / windows / android / ios
+   平台目录），用 Dart 重写探测、Release 下载、SHA256、增量包解包（`archive`）、快照回滚、
+   部署与设置；Material 3 单窗口界面，含设备勾选、进度、日志、备份回滚。
+    `dart analyze` 无问题，`flutter test` 9 项通过（含真实 zip 的解包与回滚往返验证）。
+12. 环境记录：Homebrew 安装 Flutter 3.47.9；通过 Xcodes.app 安装 Xcode 16.2
+    （`/Applications/Xcode-16.2.0.app`，App Store 最新版要求 macOS 26.6，本机 14.8.7 装不了）。
+13. 首次启动修复：发现 Flutter 模板默认 App Sandbox 导致「识别不到 Rime 目录 + 网络不可用」，
+    移除两个 entitlements 的 `app-sandbox` 后重新构建，实跑确认三前端、远端版本、预演 8 文件正常。
+14. 应用图标：用 AI 生成老虎头像，去除生成水印后切 16–1024 各尺寸替换
+    `AppIcon.appiconset`，并生成 `windows/runner/resources/app_icon.ico`；DMG 用
+    `tool/make_dmg.sh`（内含「应用程序」软链接），实测挂载与校验通过。
+15. Windows 打包：`windows/runner/main.cpp` 设置中文窗口标题与 1000×760 初始尺寸；
+    新增 `.github/workflows/build.yml`，tag 推送时在 windows-latest 构建 zip、
+    在 macos-latest 构建 DMG，并自动创建 Release。
+16. 任意方案支持：`从本地 zip 安装`（系统文件选择框 + 版本推断 + 扁平/带目录 zip 前缀识别），
+    以及 `换方案向导`（备份个人数据 → 清理旧运行文件 → 安装 → 恢复 → 部署），
+    单元测试覆盖备份收集、清理保留用户数据、lua 统计恢复。
+17. 手动添加目录：设备区右上角「+」调用系统目录选择框，目录写进设置 `custom_dirs`，
+    下次启动仍然生效；不符合 Rime 特征时先弹确认。
+18. 可拖动布局：设备 / 日志 / 备份三块之间加分隔条，拖动调整高度（日志区保持最小 120），
+    双击分隔条恢复默认值；测试覆盖拖动不报错。
+19. 体验补充：手动设备可改名（`custom_names`）；检查日志标注「（最新）/（可更新）」；
+    内容与包内一致的文件直接跳过，不再重复写盘与生成快照；备份区增加「清理备份」。
+20. 任意 GitHub 方案：主界面「GitHub 方案」填入 owner/repo 或仓库网址，读取最近 Release
+    的 zip 资产（优先 `-update.zip`），下载后按本地包同一套逻辑安装；用雾凇拼音
+    `full.zip` 预演验证：识别 68 个文件、用户数据跳过。日志中的状态后缀用绿/橙着色。
+21. 云同步（WebDAV）：新增 `WebDavClient`（MKCOL / PUT / GET / DELETE + Basic Auth，
+    路径逐段编码以支持中文文件名）、`sync_service.dart`（共用同步库清单、批量/单个上传、
+    删除、下载、设备 ID 持久化）、`sync_dialog.dart`（配置 + 文件管理 + 上传/下载）；
+    设置新增 `sync_url` / `sync_user` / `sync_password` / `device_name`，
+    主界面远端行新增「云同步」。
+    `flutter test` 30 项通过：测试从 zip 改为真实 HTTP 往返（本地 HttpServer 模拟
+    WebDAV，覆盖 MKCOL/PUT/GET/DELETE、中文文件名、`*.userdb` 目录展开、删除后清单更新、
+    下载覆盖前备份），另有清单解析、设置字段、弹窗渲染；重建 macOS App 与 DMG。
+22. 同步库文件管理器：新增 `SyncLibraryDialog`，文件夹式浏览同步库、根层按端分组、
+   上传单个文件、在线编辑文本（`readCloudFile` / `writeCloudFile`）、删除（含
+   `*.userdb` 整组）；`sync_service` 增加 `listEntries` / `readCloudFile` / `writeCloudFile`；
+   主界面新增「同步库」按钮。测试增至 32 项（新增文件树分组、编辑回写、弹窗渲染），
+   实跑确认远端行 5 个按钮无溢出。
+23. 联网时机优化：移除启动 400ms 后自动 `_check()`，打开 App 不再消耗 GitHub 匿名额度；
+   检查成功后缓存 `ReleaseInfo` 10 分钟，`preparePackage` 增加可选 `release` 参数复用结果，
+   避免「检查 + 更新」重复请求；`flutter test` 32 项通过（首页测试断言启动时日志为空）。
 
 ## 7. 下一步（按优先级）
 
-1. **Windows 实机验证**：在装了 小狼毫 + 虎韵 的机器上跑
-   `python3 update_desktop.py --list-profiles`、`--dry-run`，再跑 `python3 build_app.py`
-   用 `启动更新器.bat` 打开界面，确认
-   ① 能同时识别两个用户目录；② `WeaselServer` 路径探测正确；
-   ③ 部署后候选正常。若虎韵目录不在扫描深度内，调 `find_windows_profiles()` 深度或加注册表探测。
-2. **界面增强**：`--check` 显示落后版本数；失败自动重试一次；下载可暂停/继续；
-   把 `backup_userdata.py` 的备份 / 恢复接进界面（目前只有命令行）。
-3. **Android**：Trime 用户目录 `/sdcard/rime-cheese` 可通过 ADB push；
-   可加 `--adb <serial>` 走 `adb push` + 触发 Trime 重新部署（需实机确认路径与广播）。
-4. **iOS**：无文件系统直写，只能走快捷指令/分享安装；暂不做。
-5. **体验**：代理支持 `ALL_PROXY` 环境变量；`--source` 支持 `.tar.gz`（目前只认 zip）。
-6. **测试**：当前靠手工验证。可补一个 `tests/test_apply_zip.py`：构造临时 zip 与
-   `DELTA.json`，断言用户数据不被覆盖、deletions 生效、`full_required` 拒绝、快照可回滚。
-7. **签名与图标**：`.app` 目前无图标、未签名；分发给他人的话需要 codesign / 公证。
+1. **Windows 实机验证**：在 Windows 上 `flutter build windows` 出 exe，
+   确认 ① 能同时识别小狼毫与虎韵；② `WeaselServer` 路径探测正确；③ 部署后候选正常。
+2. **界面实跑更新**：目前只做了「检查 + 预演」；等有真实新版本时跑一次完整更新与回滚，
+   确认部署命令从 App 内执行也正常。
+3. **云同步实机验证**：用真实 WebDAV 账号（坚果云 / Nextcloud）跑一遍「上传本机 →
+   另一台设备下载云端」，确认目录创建、清单读写、单个文件增删与覆盖前备份都正常；
+   若服务端返回 301/409，需要在 `webdav_client.dart` 里补处理。
+4. **iOS / Android 接入**：平台目录已生成；Android 走 ADB push 到 Trime 目录，
+   iOS 只能走快捷指令/分享安装，需要单独设计。
+5. **界面增强**：显示落后版本数；失败自动重试；把 `backup_userdata.py` 的备份/恢复
+   用 Dart 重做并接进界面。
+6. **体验**：Dart 桌面端不支持 socks5，只支持 HTTP 代理；可引入第三方包补 socks5。
+7. **签名与图标**：Flutter 版应用图标已完成，但仍未签名；分发需要配置 macOS 签名与公证。
+8. **可选**：执行一次
+   `sudo xcode-select --switch /Applications/Xcode-16.2.0.app/Contents/Developer`，
+   之后构建不用再带 `DEVELOPER_DIR`。
 
 ## 8. 提交规范
 
