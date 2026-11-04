@@ -20,21 +20,28 @@ https://github.com/viui798/rime-updater/tree/main/ios/scripting/cheese-tiger-upd
 Scripting 会读取 `script.json`，把 `index.tsx` 与 `utils/` 一起导入。
 `script.json` 里带了 `remoteResource`，脚本可以按 24 小时自动检查自身更新。
 
-## 3. 选择 Rime 目录（只需一次）
+## 3. 添加 Rime 目录（可多个）
 
-第一次运行点「选择目录」，在「文件」App 里进入：
+点「添加目录」在「文件」App 里进入：
 
 - 仓输入法：`我的 iPhone → Hamster → Rime`
 - 元书：元书的 Rime 用户目录（如果「文件」里能看到）
 
-点选文件夹后，Scripting 会保存书签；之后每次运行自动解析，不用重选。
-如果看不到 Hamster 目录，先打开一次仓输入法让它创建目录，并确认它开启了文件共享。
+选完会让您给目录起名字（例如「仓输入法」「元书」），书签会一起保存。
+列表里每个目录都可以：
+
+- 「设为当前」：决定「安装到当前目录」写入哪个
+- 「重命名」：修改显示名称
+- 「部署方式」：在 仓输入法 / 元书 / 手动 之间循环切换
+- 「移除」：只从列表移除，不删手机上的实际文件
+
+如果有多个目录，可以点「安装到全部目录」，一次更新所有目录并按各自的部署方式部署。
 
 ## 4. 更新流程
 
 1. 点「检查更新」：读取 `viui798/viui-tiger-sentense` 的最新 Release，
    日志会显示版本与选中的资产（优先 `*-update.zip`）。
-2. 点「下载并安装 vX.Y.Z」：
+2. 点「安装到当前目录」或「安装到全部目录」：
    - 下载增量包到临时目录（走 Scripting 的后台下载，带进度条）；
    - 用 `FileManager.unzip` 解压；
    - 自动去掉增量包的 `update/` 前缀；
@@ -43,6 +50,7 @@ Scripting 会读取 `script.json`，把 `index.tsx` 与 `utils/` 一起导入。
    - 覆盖前把旧文件备份到 `<Rime 目录>/.cheese-tiger-backup/<时间戳>/`（超过 32MB 不备份）；
    - 更新日志逐行显示复制了哪些文件。
 3. 部署方式：
+   - 每个目录可以在列表里单独设置，默认按路径自动推断（含 Hamster3 / 元书 → 元书）
    - 仓输入法 → 打开 `hamster://dev.fuxiao.app.hamster/rime?deploy`
    - 元书 → 打开 `hamster3://dev.fuxiao.app.hamster3/rime?action=deploy`
    - 手动 → 自己到输入法里点部署
