@@ -48,10 +48,19 @@ jobs:
         run: |
           $version = if ($env:GITHUB_REF_NAME -like "v*") { $env:GITHUB_REF_NAME.Substring(1) } else { "1.0.0" }
           Compress-Archive -Path "build\windows\x64\runner\Release\*" -DestinationPath "build\RimeUpdater-v$version-windows.zip"
+      - name: Build installer (Inno Setup)
+        working-directory: app
+        shell: pwsh
+        run: |
+          choco install innosetup -y --no-progress
+          $iscc = "${env:ProgramFiles(x86)}/Inno Setup 6/ISCC.exe"
+          & $iscc windows/installer.iss
       - uses: actions/upload-artifact@v4
         with:
           name: windows-zip
-          path: app/build/*.zip
+          path: |
+            app/build/*.zip
+            dist/*.exe
 
   android:
     runs-on: ubuntu-latest
@@ -69,10 +78,11 @@ jobs:
         run: |
           flutter pub get
           flutter build apk --release
+          flutter build apk --release --split-per-abi
       - uses: actions/upload-artifact@v4
         with:
           name: android-apk
-          path: app/build/app/outputs/flutter-apk/app-release.apk
+          path: app/build/app/outputs/flutter-apk/*.apk
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')
@@ -89,16 +99,42 @@ jobs:
         with:
           files: dist/*
           body: |
-            芝士虎整 · 更新器
+            # Rime 更新器 v1.0.0
 
-            macOS：打开 DMG，把 RimeUpdater.app 拖进「应用程序」。
-            首次打开若提示「无法验证开发者」，右键选择「打开」，或到
-            「系统设置 → 隐私与安全性」里点「仍要打开」。
+            管理方案，让每台设备同步向前：检查版本 → 预演变更 → 一键更新 → 需要时回滚，
+            个人数据（词库、自造词、开关记忆）永远不参与覆盖。默认对接
+            [芝士虎整](https://github.com/viui798/viui-tiger-sentense)，也支持任意 GitHub
+            方案仓库与本地 zip 安装。
 
-            Windows：解压 zip 后运行 `rime_updater.exe`。
+            ## 下载与安装
 
-            Android：安装 `app-release.apk`，首次启动按提示授予「所有文件访问权限」；
-            更新完成后请在 Trime（同文输入法）里点右上角刷新图标重新部署。
+            | 平台 | 文件 | 说明 |
+            |---|---|---|
+            | macOS | `RimeUpdater-v1.0.0-macos.dmg` | 打开后把 App 拖进「应用程序」。首次打开被拦时：右键 →「打开」，或到「系统设置 → 隐私与安全性」点「仍要打开」（未签名公证） |
+            | Windows（安装版） | `RimeUpdater-v1.0.0-Setup.exe` | Inno Setup 用户级安装，无需管理员，带开始菜单与卸载项 |
+            | Windows（免安装） | `RimeUpdater-v1.0.0-windows.zip` | 解压即用，删文件夹即卸载。Windows 10/11 **x64**（ARM 可模拟运行） |
+            | Android（通用） | `app-release.apk` | 所有架构通用，约 53MB |
+            | Android（按架构） | `app-arm64-v8a-*.apk` 等 | 约 18MB，推荐；手机绝大多数为 arm64-v8a |
 
-            首次启动不会自动联网；点「检查更新」才会请求 GitHub，之后可以
-            「仅预演」或「一键更新」。
+            Android 首次启动按提示授予「所有文件访问权限」；受限目录（`Android/data` 内）通过
+            设备区的盾牌入口用 [Shizuku](https://shizuku.rikka.app/) 授权访问。更新完成后请在
+            对应输入法里重新部署（同文点右上角刷新；仓/元书通过 URL scheme 请求部署）。
+
+            ## 功能
+
+            - **多前端识别**：macOS 鼠须管 / 小企鹅 / 元书；Windows 小狼毫（注册表）、虎韵、
+              `%APPDATA%` 深度扫描；Android 公共目录、Shizuku 受限目录与多方案容器；iOS / iPadOS
+              另提供 [Scripting 脚本](ios/scripting/cheese-tiger-updater/)（主页 + 子页面排版）
+            - **增量优先，基座校验**：优先下载 `*-update.zip`（几百 KB），增量基座与已装版本
+              不符时自动改用完整包，避免「版本号前进了、文件底子没跟上」导致的更新后故障
+            - **快照与回滚**：更新前自动快照（记录覆盖 / 新增 / 删除，超大模型只登记不复制），
+              可按时间戳一键回滚并重新部署
+            - **换方案向导**：备份个人数据 → 清理旧方案运行文件 → 安装新包 → 补回个人数据 → 部署
+            - **云同步**：WebDAV（坚果云等）按前端共用同步库，单文件上传 / 在线编辑 / 删除，
+              下载前自动备份本机
+            - **个人数据保护**：`*.userdb`、`user.yaml`、自造词、统计等白名单跳过，更新只动方案文件
+
+            ## 隐私
+
+            启动时只做本地目录识别，**不自动联网**；点「检查更新」才请求 GitHub，结果缓存 10 分钟。
+            无遥测、无账号体系。

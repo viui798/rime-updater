@@ -538,7 +538,7 @@ curl -s http://127.0.0.1:8766/api/state
    生成增量」或在 DELTA.json 里带必需文件清单（缺失即回退完整包），否则旧基线用户每次
    方案新增文件都会踩同一坑。`build/kf.*.bin` 是 v0.3.24 移除 kf 后的残留，无害。
 
-40. 补充 Android 前端路径（2026-11-05，build 3）：按用户提供路径接入中文输入法
+41. 补充 Android 前端路径（2026-11-05，build 3）：按用户提供路径接入中文输入法
    `/sdcard/Android/rime`（统一使用 `/storage/emulated/0/Android/rime`）、小狐狸
    `Android/data/com.fxliang.foxy/files/foxy/rime`、中文输入法2 / 元书共用的 `Documents/rime`。
    实机发现后两处都是多方案容器，新增受限目录 `discoverRoots` 与公共目录 `schemas/`
@@ -552,7 +552,7 @@ curl -s http://127.0.0.1:8766/api/state
      中文输入法2 / 元书共用 schemas 的 2 个方案 + 小狐狸万象九键 / 九键虎 / 虎整句 3 个方案。
      截图为 `dist/android-shizuku-validation/phone-build3*.png`；正式更新仍由用户实测。
 
-41. README 全面重写（2026-11-05）：按 `ccch1mneyyy/dsh-Go` 的展示顺序，采用居中图标 /
+42. README 全面重写（2026-11-05）：按 `ccch1mneyyy/dsh-Go` 的展示顺序，采用居中图标 /
    简介 / 徽章、功能展示、下载入口、完整功能、安装与权限、折叠 FAQ、CLI、构建、目录、贡献
    与许可致谢。核对当前 Flutter / Android Shizuku / iOS Scripting / Python 的功能差异，
    写明多目录、预演、增量回退、GitHub / 本地 ZIP、换方案、数据保护、快照、WebDAV 与在线编辑。
@@ -563,6 +563,15 @@ curl -s http://127.0.0.1:8766/api/state
      真实受限目录写回待验证，以及旧基线增量可能缺文件的问题。CI 通用包与本地分 ABI 包分开说明。
    - 本次仅文档与展示图片变更；检查本地链接、锚点、HTML 标签、代码围栏和 `git diff --check`，
      未重跑应用测试 / 构建。README 的 41 项 Flutter + 6 项原生结果引用上一轮验证记录。
+
+43. v1.0.0 发版（2026-11-05）：合并分叉后统一收口——本地提交了 Shizuku / 多前端成果
+   （39b70aa），与远端 Windows 对齐 + 基座校验两提交做 merge（README 冲突保留新版徽章
+   结构并把 Windows 安装版 / x64 要求并入「安装」章节）；合并后 `dart analyze` 无问题、
+   `flutter test` 42 项全部通过。发版准备：`pubspec` 升 1.0.0+4（Android versionCode
+   链路保持单调）；`build.yml` Android job 增加分架构 APK（`--split-per-abi`，约 18MB），
+   Windows job 用 choco innosetup 跑 `installer.iss` 产出 Setup.exe 并随 artifact 上传，
+   Release 说明整体重写为 v1.0.0 功能与安装说明（旧文案还是「芝士虎整」品牌且只提 Trime）。
+   推 main 后打 `v1.0.0` tag 触发三平台构建并自动建 Release。
 
 ## 7. 下一步（按优先级）
 
