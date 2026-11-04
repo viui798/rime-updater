@@ -26,7 +26,8 @@ python3 update_desktop.py --dry-run
 python3 update_desktop.py --yes --deploy --restart
 ```
 
-仓库是私有的，需要 token：
+方案仓库是公开的，通常不需要 token。GitHub 对匿名 API 有每小时请求上限，
+频繁运行或遇到 403 时再设置：
 
 ```bash
 export GITHUB_TOKEN=$(gh auth token)   # 或 GH_TOKEN

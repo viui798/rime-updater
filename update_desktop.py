@@ -16,9 +16,8 @@
   · 完整包里的 405MB 模型若目标目录已有同尺寸文件，会跳过复制；
   · 默认只复制文件；--deploy 执行部署，--restart 重启前端。
 
-私有仓库：
-  默认从 GitHub latest release 下载；私有仓库需要 GITHUB_TOKEN/GH_TOKEN，
-  或直接用 --source 指定本地 zip / URL。
+默认从 GitHub latest release 下载；方案仓库是公开的，通常无需 token，
+设置 GITHUB_TOKEN/GH_TOKEN 只用于避开匿名 API 限流，或用 --source 指定本地 zip / URL。
 """
 
 import argparse
@@ -434,7 +433,7 @@ def main():
         try:
             release = github_release(version, token)
         except Exception as exc:
-            sys.exit(f"✗ 无法访问 GitHub Release：{exc}\n  私有仓库请设置 GITHUB_TOKEN/GH_TOKEN，或用 --source 指定 zip")
+            sys.exit(f"✗ 无法访问 GitHub Release：{exc}\n  若为 API 限流，可设置 GITHUB_TOKEN/GH_TOKEN，或用 --source 指定 zip")
         asset, _ = pick_asset(release)
         version = (release.get("tag_name") or version).lstrip("v")
 
