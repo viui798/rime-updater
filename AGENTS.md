@@ -2,6 +2,29 @@
 
 > 给接手的 agent / 未来的自己：先读本文，再动手。约 2 分钟。
 
+## 0. 接手清单（新设备 / 新 agent，5 分钟）
+
+1. 拉代码：`git clone https://github.com/viui798/rime-updater && cd rime-updater`
+   （原开发机本地目录 `/Users/viui/Desktop/rime更新器`，方案仓库在 `/Users/viui/Desktop/芝士虎整`）
+2. 装 Flutter stable（原机器为 3.47.9 / Dart 3），然后 `cd app && flutter pub get`
+   （项目只用纯 Dart 依赖 `archive` / `crypto` / `path`，不需要 CocoaPods）
+3. 跑验证：`dart analyze`、`flutter test`，当前应为 **32 项全部通过**
+4. 构建：
+   - macOS：`DEVELOPER_DIR=/Applications/Xcode-16.2.0.app/Contents/Developer flutter build macos --release`
+   - Windows：在 Windows 机器上 `flutter build windows --release`，产物
+     `build\windows\x64\runner\Release\rime_updater.exe`（需要 VS「使用 C++ 的桌面开发」）
+5. 启动后先勾选设备 → 点「检查更新」。**启动时故意不联网**，不要改回自动检查
+6. 读完第 2/3/4/6/7 节；本次会话结束前更新第 6 节与第 9 节
+
+运行数据都不在仓库里（换设备只同步代码，个人数据靠 WebDAV 同步库）：
+
+| 内容 | macOS | Windows |
+|---|---|---|
+| 设置 / 设备 ID / 同步状态 | `~/Library/Application Support/CheeseTigerUpdater/` | `%LOCALAPPDATA%\cheese-tiger\` |
+| 换方案 / 同步前备份 | 同上 `switch-backups/` | 同上 `switch-backups/` |
+| 下载缓存 | `~/Library/Caches/cheese-tiger` | `%LOCALAPPDATA%\cheese-tiger\cache` |
+| Rime 用户目录 | `~/Library/Rime`、`~/.local/share/fcitx5/rime`、Cobra | `%APPDATA%\Rime`、扫描 `%APPDATA%` / `%LOCALAPPDATA%` |
+
 ## 1. 项目是什么
 
 芝士虎整（虎码 Rime 整合包）的**多设备一键更新器**，独立仓库维护：
@@ -75,12 +98,20 @@
 | `app/` | Flutter 主客户端：`lib/main.dart`、`lib/core/`、`lib/ui/`、`test/` |
 | `app/lib/core/rime_profile.dart` | 前端探测、版本读取、`shouldCopy` 过滤、备份列表 |
 | `app/lib/core/github_client.dart` | Release 拉取、下载、SHA256 校验、缓存 |
+| `app/lib/core/package_preparer.dart` | 远端包准备：增量优先、`full_required` 回退完整包、缓存复用 |
+| `app/lib/core/local_package.dart` | 系统文件 / 目录选择框、本地 zip 版本推断 |
 | `app/lib/core/zip_installer.dart` | 增量包解包、快照、回滚（基于 `archive` 包） |
+| `app/lib/core/scheme_switcher.dart` | 换方案：收集个人数据、备份、清理旧运行文件、恢复 |
 | `app/lib/core/deployer.dart` | 按前端执行部署 / 重启命令 |
 | `app/lib/core/webdav_client.dart` | 极简 WebDAV 客户端：MKCOL / PUT / GET / DELETE + Basic Auth（路径逐段编码） |
 | `app/lib/core/sync_service.dart` | 云同步：同步库清单、文件树、上传/删除/下载、在线编辑 |
 | `app/lib/ui/sync_dialog.dart` | 云同步弹窗：WebDAV 配置、同步库文件管理、上传 / 下载 |
 | `app/lib/ui/sync_library_dialog.dart` | 文件夹式同步库管理器：浏览、上传、在线编辑、删除 |
+| `app/lib/ui/local_zip_dialog.dart` / `remote_scheme_dialog.dart` / `switch_scheme_dialog.dart` / `settings_dialog.dart` | 四个入口弹窗 |
+| `app/test/` | 8 个测试文件，覆盖过滤、解包、回滚、同步、WebDAV、界面 |
+| `app/tool/verify.dart` | 真实下载（走缓存）+ 对首个目录预演，不打开界面 |
+| `app/tool/make_dmg.sh` | 生成 macOS DMG（含「应用程序」软链接） |
+| `.github/workflows/build.yml` | 推 `v*` tag 或手动触发，构建 macOS DMG / Windows zip |
 | `app/lib/core/settings_store.dart` | 设置读写（与 Python 版同一路径） |
 | `update_desktop.py` | Python 核心：profile 探测、资产选择、下载校验、解包应用、部署、快照/回滚 |
 | `backup_userdata.py` | 用户数据备份 / 恢复：个人数据打包 zip，`--restore` 解回用户目录 |
@@ -166,12 +197,17 @@ Flutter 客户端：
 ```bash
 cd app
 dart analyze                      # 静态分析
-flutter test                      # 过滤规则 / 解包 / 快照回滚 / 界面渲染
+flutter test                      # 过滤规则 / 解包 / 快照回滚 / 同步 / 界面，当前 32 项
 dart run tool/verify.dart         # 真实下载（走缓存）+ 对首个目录预演，不需要打开界面
 
 # Xcode 未设为默认时：
 DEVELOPER_DIR=/Applications/Xcode-16.2.0.app/Contents/Developer flutter build macos
 # 产物：build/macos/Build/Products/Release/RimeUpdater.app
+
+# Windows（在 Windows 机器上，需要 VS「使用 C++ 的桌面开发」）：
+flutter pub get
+flutter build windows --release
+# 产物：build\windows\x64\runner\Release\rime_updater.exe（整个 Release 目录一起分发）
 ```
 
 Python 侧（改脚本时）：
@@ -263,8 +299,10 @@ curl -s http://127.0.0.1:8766/api/state
 
 ## 7. 下一步（按优先级）
 
-1. **Windows 实机验证**：在 Windows 上 `flutter build windows` 出 exe，
-   确认 ① 能同时识别小狼毫与虎韵；② `WeaselServer` 路径探测正确；③ 部署后候选正常。
+1. **Windows 实机验证**：在 Windows 上 `flutter pub get && flutter build windows --release`
+   （产物 `build\windows\x64\runner\Release\rime_updater.exe`，整个目录一起分发），确认
+   ① 能同时识别小狼毫与虎韵；② `WeaselServer` 路径探测正确；③ 部署后候选正常。
+   也可以推 `v*` tag，用 Actions 的 `windows-zip` artifact 拿到现成包。
 2. **界面实跑更新**：目前只做了「检查 + 预演」；等有真实新版本时跑一次完整更新与回滚，
    确认部署命令从 App 内执行也正常。
 3. **云同步实机验证**：用真实 WebDAV 账号（坚果云 / Nextcloud）跑一遍「上传本机 →
@@ -285,3 +323,18 @@ curl -s http://127.0.0.1:8766/api/state
 - 中文提交信息，说明「为什么」，不要只写「更新脚本」；
 - 改脚本必须跑第 5 节清单，并在提交信息里写验证结果；
 - 不提交 `__pycache__`、下载缓存、任何用户目录内容。
+
+## 9. 交接快照（每次会话结束更新这一节）
+
+> 2026-11-04 · `main` @ `63fef18`（新增 Flutter 客户端、云同步与同步库管理）
+
+- **已完成并已推送**：Flutter 客户端（`app/`）、GitHub 方案 / 本地 zip / 换方案、
+  手动目录与改名、可拖动布局、WebDAV 云同步、文件夹式同步库（上传 / 在线编辑 / 删除）、
+  启动不联网与 10 分钟检查缓存、GitHub Actions 双平台构建
+- **已验证**：`dart analyze` 无问题；`flutter test` 32 项通过；macOS 实跑
+  （三前端识别、远端 v0.3.23、预演 8 文件）；DMG 打包并安装到 `/Applications`
+- **未验证（优先做）**：Windows 实机（小狼毫 / 虎韵、WeaselServer 部署）、
+  真实 WebDAV 账号（坚果云 / Nextcloud，注意 301/409）、真实新版本的一次完整更新与回滚
+- **不要改的约定**：启动不自动请求 GitHub；更新覆盖前必须有快照 / 备份；
+  `*.userdb`、`user.yaml` 等个人数据不参与方案覆盖；云同步只走 `<kind>/files/<相对路径>`
+- **本机数据**：设置 / 设备 ID / 备份都在第 0 节列出的应用支持目录，不在仓库里
