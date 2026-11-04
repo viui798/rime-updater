@@ -218,6 +218,40 @@ function MainView() {
     }
   }
 
+  async function registerDir(path: string, bookmarkName: string) {
+    const existing = config.dirs.find((dir) => dir.path === path)
+    if (existing) {
+      setActive(existing.id)
+      append(`这个目录已经在列表里：${existing.name}`)
+      return
+    }
+
+    const DialogApi: any = (globalThis as any).Dialog
+    const input = DialogApi?.prompt
+      ? await DialogApi.prompt({
+          title: "目录名称",
+          message: "给这个 Rime 目录起个名字，例如「仓输入法」或「元书」。",
+          defaultValue: basename(path) || "新目录",
+          confirmLabel: "保存",
+          cancelLabel: "取消",
+        })
+      : basename(path)
+    const name = String(input ?? "").trim() || basename(path) || "Rime 目录"
+    const dir: DirEntry = {
+      id: `dir-${Date.now()}`,
+      name,
+      bookmarkName,
+      path,
+      inputMethod: inferMethod(path, name),
+    }
+    updateConfig({
+      ...config,
+      dirs: [...config.dirs, dir],
+      activeId: dir.id,
+    })
+    append(`已添加目录：${name}（${methodLabel(dir.inputMethod)}部署）`)
+  }
+
   async function pickFolder() {
     const picker: any = (globalThis as any).DocumentPicker
     if (typeof picker?.pickDirectoryBookmark !== "function") {
@@ -225,47 +259,56 @@ function MainView() {
       return
     }
     try {
-      const result = await picker.pickDirectoryBookmark({
-        initialDirectory: activeDir?.path || undefined,
-      })
+      let result: any = null
+      try {
+        result = await picker.pickDirectoryBookmark({
+          initialDirectory: activeDir?.path || undefined,
+        })
+      } catch {
+        // initialDirectory 失效时再试一次，不带初始目录
+        result = await picker.pickDirectoryBookmark()
+      }
       if (!result) return
       const path = String(result.path ?? "").trim()
       if (!path) return
-      const bookmarkName = String(result.bookmarkName ?? "")
-      const existing = config.dirs.find((dir) => dir.path === path)
-      if (existing) {
-        setActive(existing.id)
-        append(`这个目录已经在列表里：${existing.name}`)
-        return
-      }
-
-      const DialogApi: any = (globalThis as any).Dialog
-      const input = DialogApi?.prompt
-        ? await DialogApi.prompt({
-            title: "目录名称",
-            message: "给这个 Rime 目录起个名字，例如「仓输入法」或「元书」。",
-            defaultValue: basename(path) || "新目录",
-            confirmLabel: "保存",
-            cancelLabel: "取消",
-          })
-        : basename(path)
-      const name = String(input ?? "").trim() || basename(path) || "Rime 目录"
-      const dir: DirEntry = {
-        id: `dir-${Date.now()}`,
-        name,
-        bookmarkName,
-        path,
-        inputMethod: inferMethod(path, name),
-      }
-      updateConfig({
-        ...config,
-        dirs: [...config.dirs, dir],
-        activeId: dir.id,
-      })
-      append(`已添加目录：${name}（${methodLabel(dir.inputMethod)}部署）`)
+      await registerDir(path, String(result.bookmarkName ?? ""))
     } catch (error: any) {
-      append(`✗ 选择目录失败：${String(error?.message ?? error)}`)
+      const message = String(error?.message ?? error)
+      append(`✗ 选择目录失败：${message}`)
+      const DialogApi: any = (globalThis as any).Dialog
+      void DialogApi?.alert?.({
+        title: "无法选择目录",
+        message: `${message}\n\n可以改用「手动输入路径」，或在「文件」App 里确认 Hamster/Rime 目录可见。`,
+        confirmLabel: "知道了",
+      })
     }
+  }
+
+  async function addManualPath() {
+    const DialogApi: any = (globalThis as any).Dialog
+    if (!DialogApi?.prompt) return
+    const input = await DialogApi.prompt({
+      title: "手动输入目录",
+      message:
+        "粘贴 Rime 目录的完整路径。可以先在「文件」App 里打开该目录确认路径。",
+      defaultValue: activeDir?.path ?? "",
+      confirmLabel: "添加",
+      cancelLabel: "取消",
+    })
+    if (input == null) return
+    const path = String(input).trim()
+    if (!path) return
+    try {
+      await list(path)
+    } catch (error: any) {
+      void DialogApi?.alert?.({
+        title: "路径不可用",
+        message: `无法读取 ${path}\n${String(error?.message ?? error)}`,
+        confirmLabel: "知道了",
+      })
+      return
+    }
+    await registerDir(path, "")
   }
 
   async function renameDir(dir: DirEntry) {
@@ -463,6 +506,11 @@ function MainView() {
     >
       <Section header={<Text>本地信息</Text>}>
         <KvRow label="当前目录" value={activeDir?.name ?? "未选择"} />
+        {config.dirs.length === 0 ? (
+          <Text font="caption" foregroundStyle="secondaryLabel">
+            还没有目录，请到「设置」页点「添加目录」。
+          </Text>
+        ) : null}
         {activeDir ? (
           <Text font="caption" foregroundStyle="secondaryLabel">
             {activeDir.path}
@@ -570,6 +618,12 @@ function MainView() {
           </VStack>
         ))}
         <Button title="添加目录" action={pickFolder} disabled={busy} />
+        <Button title="手动输入路径" action={addManualPath} disabled={busy} />
+        {log ? (
+          <Text font="caption" foregroundStyle="secondaryLabel">
+            {log.split("\n").slice(-4).join("\n")}
+          </Text>
+        ) : null}
       </Section>
 
       <Section header={<Text>更新设置</Text>}>
