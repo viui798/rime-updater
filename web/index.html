@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>芝士虎整 · 更新器</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="mark">虎</span>
+    <div class="brand-text">
+      <h1>芝士虎整 · 更新器</h1>
+      <p id="remoteLine">正在读取本机状态…</p>
+    </div>
+  </div>
+  <div class="top-actions">
+    <button class="btn ghost" id="settingsBtn" type="button">设置</button>
+    <button class="btn ghost" id="quitBtn" type="button">退出</button>
+  </div>
+</header>
+
+<main>
+  <section class="hero">
+    <div class="hero-version">
+      <span class="eyebrow">远端最新</span>
+      <strong id="remoteVersion" class="version">—</strong>
+      <span id="remoteMeta" class="meta">尚未检查</span>
+    </div>
+    <div class="hero-actions">
+      <button class="btn ghost" id="checkBtn" type="button">检查更新</button>
+      <button class="btn ghost" id="dryBtn" type="button">仅预演</button>
+      <button class="btn primary" id="updateBtn" type="button">一键更新</button>
+    </div>
+  </section>
+
+  <div class="section-head">
+    <h2>设备</h2>
+    <span id="deviceCount" class="hint"></span>
+  </div>
+  <section id="devices" class="devices"></section>
+  <p id="emptyHint" class="empty hidden">没有识别到 Rime 用户目录。</p>
+
+  <div class="section-head">
+    <h2>运行日志</h2>
+    <span id="jobStatus" class="hint">空闲</span>
+  </div>
+  <section class="card log-card">
+    <div class="progress"><i id="progressBar"></i></div>
+    <pre id="log" class="log">等待操作。建议先点「检查更新」，再「仅预演」确认要改哪些文件，最后「一键更新」。</pre>
+  </section>
+
+  <div class="section-head">
+    <h2>备份与回滚</h2>
+    <span class="hint">更新前自动快照，可恢复到上一版本</span>
+  </div>
+  <section id="backups" class="backups"></section>
+</main>
+
+<div id="settings" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
+  <div class="modal-card">
+    <div class="modal-head">
+      <h2 id="settingsTitle">设置</h2>
+      <button class="icon-btn" id="closeSettings" type="button" aria-label="关闭">×</button>
+    </div>
+    <form id="settingsForm" class="form">
+      <label class="field">
+        <span>仓库</span>
+        <input name="repo" placeholder="viui798/viui-tiger-sentense" spellcheck="false">
+        <small>owner/repo，留空使用默认方案仓库</small>
+      </label>
+      <label class="field">
+        <span>代理</span>
+        <input name="proxy" placeholder="socks5://127.0.0.1:1080" spellcheck="false">
+        <small>留空则直连</small>
+      </label>
+      <label class="field">
+        <span>GitHub Token</span>
+        <input name="token" placeholder="可选，仅用于避开 API 限流" spellcheck="false">
+        <small>留空则读取环境变量 GITHUB_TOKEN / GH_TOKEN</small>
+      </label>
+      <label class="field">
+        <span>下载缓存目录</span>
+        <input name="cache_dir" placeholder="留空使用系统默认缓存目录" spellcheck="false">
+      </label>
+      <div class="checks">
+        <label class="check"><input type="checkbox" name="deploy"> 更新后自动部署</label>
+        <label class="check"><input type="checkbox" name="restart"> 部署后重启前端</label>
+        <label class="check"><input type="checkbox" name="snapshot"> 更新前完整快照（支持回滚）</label>
+      </div>
+      <div class="modal-foot">
+        <span id="settingsHint" class="hint"></span>
+        <button class="btn primary" type="submit">保存</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script src="/app.js"></script>
+</body>
+</html>

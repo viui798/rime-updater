@@ -36,7 +36,6 @@ import zipfile
 from pathlib import Path, PurePosixPath
 
 REPO = "viui798/viui-tiger-sentense"
-API = f"https://api.github.com/repos/{REPO}/releases"
 MARKER = ".cheese-tiger-version"
 BACKUP_DIR = ".cheese-tiger-backup"
 
@@ -51,6 +50,15 @@ USER_DATA_FILES = {"user.yaml", "installation.yaml", "reverse_freq.txt", "custom
 USER_DATA_SUFFIXES = (".userdb", ".options.yaml", ".log", ".md", ".zip", ".sha256")
 USER_DATA_LUA = {"kc_count.txt", "kc_total.txt"}
 BIG_MODEL = "models/sentence-fivegram-mobile.bin"
+BACKUP_MAX_BYTES = 32 * 1024 * 1024
+
+
+class UpdateError(Exception):
+    """可在界面里直接展示的更新错误。"""
+
+
+class FullPackageRequired(UpdateError):
+    """增量包声明 full_required，必须改用完整包。"""
 
 
 def posix(path):
@@ -70,14 +78,14 @@ def read_sha256(path):
     return text[0].lower() if text else None
 
 
-def verify_hash(path, expected):
+def verify_hash(path, expected, log=print):
     if not expected:
         return True
     actual = sha256_file(path)
     if actual.lower() != expected.lower():
-        print(f"  ✗ SHA256 不匹配：期望 {expected}，实际 {actual}")
+        log(f"  ✗ SHA256 不匹配：期望 {expected}，实际 {actual}")
         return False
-    print("  ✓ SHA256 校验通过")
+    log("  ✓ SHA256 校验通过")
     return True
 
 
@@ -187,8 +195,9 @@ def read_local_version(path):
     return None
 
 
-def github_release(version, token):
-    url = f"{API}/tags/{version}" if version else f"{API}/latest"
+def github_release(version, token, repo=None):
+    api = f"https://api.github.com/repos/{repo or REPO}/releases"
+    url = f"{api}/tags/{version}" if version else f"{api}/latest"
     headers = {"Accept": "application/vnd.github+json"}
     if token:
         headers["Authorization"] = f"Bearer {token}"
@@ -205,10 +214,10 @@ def pick_asset(release):
     full = [a for a in assets if a.get("name", "").endswith(".zip") and "-update" not in a.get("name", "")]
     if full:
         return full[0], False
-    raise SystemExit("✗ Release 里没有可用的 zip 资产")
+    raise UpdateError("Release 里没有可用的 zip 资产")
 
 
-def download(url, token, dest, opener=None, expected=None):
+def download(url, token, dest, opener=None, expected=None, log=print, on_progress=None):
     headers = {"Accept": "application/octet-stream"}
     if token:
         headers["Authorization"] = f"Bearer {token}"
@@ -227,8 +236,10 @@ def download(url, token, dest, opener=None, expected=None):
             done += len(chunk)
             if total and done * 100 // total >= last + 5:
                 last = done * 100 // total
-                print(f"  下载 {last}%")
-    if not verify_hash(dest, expected):
+                log(f"  下载 {last}%")
+                if on_progress:
+                    on_progress(last)
+    if not verify_hash(dest, expected, log):
         try:
             os.unlink(dest)
         except OSError:
@@ -248,9 +259,23 @@ def zip_prefix(zf):
     return top + "/"
 
 
-def apply_zip(zip_path, target, version, dry_run, expected=None):
-    if not verify_hash(zip_path, expected):
-        raise SystemExit("✗ 安装包 SHA256 校验失败，已停止")
+def backup_file(src, backup_root, rel, manifest, log=print):
+    """覆盖前把旧文件复制进备份目录；过大文件只记录，不复制。"""
+    if src.stat().st_size > BACKUP_MAX_BYTES:
+        manifest["too_big"].append(rel)
+        log(f"  ! {rel} 超过 {BACKUP_MAX_BYTES // (1024 * 1024)}MB，未纳入备份")
+        return
+    dst = backup_root / rel
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(src, dst)
+    manifest["overwritten"].append(rel)
+
+
+def apply_zip(zip_path, target, version, dry_run, expected=None, log=print,
+              snapshot=False, on_progress=None):
+    """把包应用到 target，返回 {copied, skipped, backup}。"""
+    if not verify_hash(zip_path, expected, log):
+        raise UpdateError("安装包 SHA256 校验失败，已停止")
     with zipfile.ZipFile(zip_path) as zf:
         prefix = zip_prefix(zf)
         delta = None
@@ -258,53 +283,149 @@ def apply_zip(zip_path, target, version, dry_run, expected=None):
         if delta_name in zf.namelist():
             delta = json.loads(zf.read(delta_name))
         if delta and delta.get("full_required"):
-            raise SystemExit("✗ 该增量包要求完整包（模型有变更），请改用完整 zip")
+            raise FullPackageRequired("该增量包要求完整包（模型有变更），请改用完整 zip")
 
-        copied = skipped = 0
-        backup_root = target / BACKUP_DIR / time.strftime("%Y%m%d-%H%M%S")
-        for info in zf.infolist():
-            if info.is_dir() or not info.filename.startswith(prefix):
-                continue
+        stamp = time.strftime("%Y%m%d-%H%M%S")
+        backup_root = target / BACKUP_DIR / stamp
+        manifest = {
+            "stamp": stamp,
+            "version": version,
+            "previous_version": read_local_version(target),
+            "target": str(target),
+            "overwritten": [],
+            "created": [],
+            "deleted": [],
+            "too_big": [],
+        }
+
+        entries = [i for i in zf.infolist()
+                   if not i.is_dir() and i.filename.startswith(prefix)]
+        total = sum(1 for i in entries if should_copy(i.filename[len(prefix):], i.file_size, target))
+        done = copied = skipped = 0
+        for info in entries:
             rel = info.filename[len(prefix):]
             if rel == "DELTA.json" or not should_copy(rel, info.file_size, target):
                 skipped += 1
                 continue
-            if dry_run:
-                print(f"  会更新 {rel}")
-                copied += 1
-                continue
             dst = target / rel
-            if rel.endswith(".custom.yaml") and dst.exists():
-                bak = backup_root / rel
-                bak.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(dst, bak)
-            dst.parent.mkdir(parents=True, exist_ok=True)
-            with zf.open(info) as src, open(dst, "wb") as out:
-                shutil.copyfileobj(src, out)
-            copied += 1
+            existed = dst.exists()
+            if dry_run:
+                log(f"  会更新 {rel}")
+                copied += 1
+            else:
+                if existed and (snapshot or rel.endswith(".custom.yaml")):
+                    bak = backup_root / rel
+                    bak.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(dst, bak)
+                    if snapshot:
+                        manifest["overwritten"].append(rel)
+                elif snapshot and not existed:
+                    manifest["created"].append(rel)
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                with zf.open(info) as src, open(dst, "wb") as out:
+                    shutil.copyfileobj(src, out)
+                copied += 1
+            done += 1
+            if on_progress:
+                on_progress(done, total, rel)
 
         if delta:
             for rel in delta.get("deletions") or []:
                 if not should_copy(rel):
                     continue
                 dst = target / rel
-                if dst.exists():
-                    print(f"  删除 {rel}" if dry_run else f"  已删除 {rel}")
-                    if not dry_run:
-                        dst.unlink()
+                if not dst.exists():
+                    continue
+                log(f"  删除 {rel}" if dry_run else f"  已删除 {rel}")
+                if dry_run:
+                    continue
+                if snapshot:
+                    backup_file(dst, backup_root, rel, manifest, log)
+                    manifest["deleted"].append(rel)
+                dst.unlink()
 
+    backup = None
     if not dry_run:
         (target / MARKER).write_text(version + "\n", encoding="utf-8")
-    print(f"  {'预演' if dry_run else '完成'}：更新 {copied} 个文件，跳过 {skipped} 个")
+        if snapshot and any(manifest[k] for k in ("overwritten", "created", "deleted", "too_big")):
+            (backup_root / "manifest.json").write_text(
+                json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+            backup = stamp
+    log(f"  {'预演' if dry_run else '完成'}：更新 {copied} 个文件，跳过 {skipped} 个")
+    return {"copied": copied, "skipped": skipped, "backup": backup}
 
 
-def run(cmd, dry_run):
-    print("  $ " + " ".join(str(c) for c in cmd))
+def list_backups(target):
+    root = target / BACKUP_DIR
+    if not root.is_dir():
+        return []
+    items = []
+    for d in sorted(root.iterdir(), reverse=True):
+        if not d.is_dir():
+            continue
+        info = {"stamp": d.name, "version": None, "previous_version": None,
+                "overwritten": 0, "created": 0, "deleted": 0}
+        man = d / "manifest.json"
+        if man.exists():
+            try:
+                data = json.loads(man.read_text(encoding="utf-8"))
+                info["version"] = data.get("version")
+                info["previous_version"] = data.get("previous_version")
+                for key in ("overwritten", "created", "deleted"):
+                    info[key] = len(data.get(key) or [])
+            except (OSError, ValueError):
+                pass
+        items.append(info)
+    return items
+
+
+def rollback(target, stamp, log=print):
+    """按快照恢复：删除新增文件、恢复被覆盖与被删除的文件。"""
+    root = target / BACKUP_DIR / stamp
+    man = root / "manifest.json"
+    if not man.exists():
+        raise UpdateError(f"备份 {stamp} 没有 manifest.json，只能手动恢复")
+    data = json.loads(man.read_text(encoding="utf-8"))
+
+    for rel in data.get("created") or []:
+        dst = target / rel
+        if dst.exists():
+            dst.unlink()
+            log(f"  移除新增 {rel}")
+    for rel in data.get("overwritten") or []:
+        src = root / rel
+        if src.exists():
+            dst = target / rel
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dst)
+            log(f"  恢复 {rel}")
+    for rel in data.get("deleted") or []:
+        src = root / rel
+        if src.exists():
+            dst = target / rel
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dst)
+            log(f"  恢复已删除 {rel}")
+    for rel in data.get("too_big") or []:
+        log(f"  ! {rel} 体积过大未备份，无法恢复")
+
+    previous = data.get("previous_version")
+    marker = target / MARKER
+    if previous:
+        marker.write_text(str(previous) + "\n", encoding="utf-8")
+    elif marker.exists():
+        marker.unlink()
+    log(f"  回滚完成，当前版本：{previous or '未知'}")
+    return data
+
+
+def run(cmd, dry_run, log=print):
+    log("  $ " + " ".join(str(c) for c in cmd))
     if not dry_run:
         try:
             subprocess.run(cmd, check=False)
         except OSError as exc:
-            print(f"  ⚠ {exc}")
+            log(f"  ⚠ {exc}")
 
 
 def windows_registry_value(key, value):
@@ -334,54 +455,54 @@ def windows_weasel():
     return None, None
 
 
-def deploy(profile, dry_run, restart):
+def deploy(profile, dry_run, restart, log=print):
     kind = profile["kind"]
     path = profile["path"]
     system = platform.system()
     if kind == "squirrel" and system == "Darwin":
         squirrel = Path("/Library/Input Methods/Squirrel.app/Contents/MacOS/Squirrel")
         if squirrel.exists():
-            run([str(squirrel), "--reload"], dry_run)
+            run([str(squirrel), "--reload"], dry_run, log)
         else:
             shared = "/Library/Input Methods/Squirrel.app/Contents/SharedSupport"
             deployer = "/Library/Input Methods/Squirrel.app/Contents/MacOS/rime_deployer"
             if Path(deployer).exists():
-                run([deployer, "--build", str(path), shared], dry_run)
+                run([deployer, "--build", str(path), shared], dry_run, log)
         return
     if kind == "fcitx5" and system == "Darwin":
         curl = Path("/Library/Input Methods/Fcitx5.app/Contents/bin/fcitx5-curl")
         if curl.exists():
-            run([str(curl), "/config/addon/rime/deploy", "-X", "POST", "-d", "{}"], dry_run)
+            run([str(curl), "/config/addon/rime/deploy", "-X", "POST", "-d", "{}"], dry_run, log)
         elif restart:
-            run(["killall", "Fcitx5"], dry_run)
-            run(["open", "/Library/Input Methods/Fcitx5.app"], dry_run)
+            run(["killall", "Fcitx5"], dry_run, log)
+            run(["open", "/Library/Input Methods/Fcitx5.app"], dry_run, log)
         else:
-            print("  提示：未找到 fcitx5-curl，请手动重新部署")
+            log("  提示：未找到 fcitx5-curl，请手动重新部署")
         return
     if kind == "cobra" and system == "Darwin":
         if restart:
-            run(["killall", "Cobra"], dry_run)
-            run(["open", "/Library/Input Methods/Cobra.app"], dry_run)
+            run(["killall", "Cobra"], dry_run, log)
+            run(["open", "/Library/Input Methods/Cobra.app"], dry_run, log)
         else:
-            print("  提示：元书需要重新部署，或加 --restart")
+            log("  提示：元书需要重新部署，或加 --restart")
         return
     if kind == "weasel" and system == "Windows":
         server, deployer = windows_weasel()
         if server and server.exists():
-            run([str(server), "/q"], dry_run)
+            run([str(server), "/q"], dry_run, log)
             if not dry_run:
                 time.sleep(0.5)
         if deployer and deployer.exists():
-            run([str(deployer), "/deploy"], dry_run)
+            run([str(deployer), "/deploy"], dry_run, log)
         else:
-            print("  提示：未找到 WeaselDeployer.exe，请手动重新部署")
+            log("  提示：未找到 WeaselDeployer.exe，请手动重新部署")
         if server and server.exists():
             if not dry_run:
                 time.sleep(0.5)
                 subprocess.Popen([str(server)])
-            print(f"  $ {server}")
+            log(f"  $ {server}")
         return
-    print("  提示：未知前端，请手动重新部署")
+    log("  提示：未知前端，请手动重新部署")
 
 
 def main():
@@ -398,6 +519,8 @@ def main():
     parser.add_argument("--proxy", help="HTTP/SOCKS5 代理，例如 socks5://127.0.0.1:1080")
     parser.add_argument("--cache-dir", help="下载缓存目录")
     parser.add_argument("--no-cache", action="store_true", help="不使用缓存")
+    parser.add_argument("--snapshot", action="store_true", help="更新前完整快照，支持 --rollback")
+    parser.add_argument("--rollback", metavar="时间戳", help="回滚到指定备份（如 20261104-141300）")
     args = parser.parse_args()
 
     profiles = []
@@ -415,6 +538,20 @@ def main():
     if args.list_profiles:
         for p in profiles:
             print(f"{p['label']:<8} {p['path']}  当前={read_local_version(p['path']) or '未知'}")
+            for b in list_backups(p["path"])[:5]:
+                print(f"  备份 {b['stamp']}  v{b['previous_version'] or '?'} → v{b['version'] or '?'}")
+        return
+
+    if args.rollback:
+        for p in profiles:
+            print(f"\n[{p['label']}] {p['path']}")
+            try:
+                rollback(p["path"], args.rollback)
+            except UpdateError as exc:
+                print(f"  ✗ {exc}")
+                continue
+            if args.deploy:
+                deploy(p, args.dry_run, args.restart)
         return
 
     token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
@@ -509,7 +646,11 @@ def main():
 
     for p in profiles:
         print(f"\n[{p['label']}] {p['path']}")
-        apply_zip(zip_path, p["path"], version, args.dry_run, expected)
+        try:
+            apply_zip(zip_path, p["path"], version, args.dry_run, expected,
+                      snapshot=args.snapshot)
+        except UpdateError as exc:
+            sys.exit(f"✗ {exc}")
         if args.deploy:
             deploy(p, args.dry_run, args.restart)
 
