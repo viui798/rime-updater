@@ -594,6 +594,29 @@ curl -s http://127.0.0.1:8766/api/state
    删除其他独立截图和流程图资产，功能章节保留文字说明。通过 Chrome 以 2560×1280 渲染预览；
    SVG XML、唯一产品图引用和 `git diff --check` 均通过。
 
+46. v0.10 发布与功能调研（2026-11-05）：首版 Release **v0.10** 已发布（应用户要求版本号
+   从 v1.0.0 改为 v0.10），7 资产齐全：DMG / Setup.exe / windows.zip / 通用+三架构 APK，
+   全部构建自 tag v0.10（= 当时 main 最新）。发布过程中修了两个 CI 坑：
+   ① choco 的 Inno Setup 不带简体中文语言文件，`ChineseSimplified.isl` 已收进
+   `app/windows/languages/`（installer.iss 相对路径引用）；② upload-artifact v4 按多路径
+   公共祖先嵌套存储，Windows 的 zip+exe 被嵌两层后 Release 的 `dist/*` 漏传——
+   先归拢 `build/win-release/` 再上传，v0.10 的缺包已从 artifact 手工补传。
+   同 tag 删除重推不触发 workflow（GitHub 怪癖），统一用 workflow_dispatch。
+   **功能调研**：四路并行（Rime 生态 / 更新框架 / 部署与加速 / WebDAV）产出
+   `docs/feature-research-2026-11.md`（128 条，含 P0-P3 优先级路线）。要点：
+   增量改固定基线 + DELTA.json 文件级 hash 清单（ostree/Sparkle 模式，配 §3 设计草案）、
+   云同步词库部分改用 Rime 原生快照合并（installation.yaml sync_dir，官方文档核实）、
+   `releases/latest` 302 探测省 API 限额、ed25519 签名（cryptography 包）、
+   `archive` 自带 zstd、Trime 部署广播走 Shizuku。
+   **部署排障补录（修正第 40 条）**：① fcitx5 的 POST 部署实测**有效**
+   （`/config/addon/rime/deploy -X POST`，200 空体 fire-and-forget，成败要靠 build mtime
+   轮询 + `/tmp/Fcitx5.log` 验证，第 40 条「不触发部署」的结论不准确——当时是部署因缺
+   词典依赖静默跳过）；② **词典编译要求同名 `.schema.yaml` 存在**（日志
+   `missing input schema; skipped unsatisfied dependency: tiger_full`），第 40 条的缺失
+   文件清单需补上 `tiger_full.schema.yaml`（已补进两个目录）；③ **元书有官方 CLI**：
+   `Cobra deploy` / `sync` / `print`（本机实测，print 可探测用户目录权威路径），
+   第 40 条「只能 killall」已过时，deployer.dart 应改调 CLI。
+
 ## 7. 下一步（按优先级）
 
 1. **Windows 回滚实跑**：识别、更新与部署已在实机验证（两设备 0.3.1/0.3.2 → 0.3.23，
