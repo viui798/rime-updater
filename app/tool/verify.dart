@@ -17,6 +17,8 @@ Future<void> main() async {
 
   final package = await preparePackage(
     settings: settings,
+    installedVersions:
+        profiles.map((profile) => readLocalVersion(profile.path)).toList(),
     log: print,
     progress: (percent) => print('  进度 $percent%'),
   );

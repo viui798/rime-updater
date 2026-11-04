@@ -105,6 +105,26 @@ bool zipRequiresFull(String zipPath) {
   }
 }
 
+/// 从包内 DELTA.json 读取基座版本（增量包适用的已装版本），没有返回空串。
+String deltaBaseVersion(String zipPath) {
+  if (!File(zipPath).existsSync()) return '';
+  InputFileStream? input;
+  try {
+    input = InputFileStream(zipPath);
+    final archive = ZipDecoder().decodeStream(input);
+    final prefix = _zipPrefix(archive);
+    final entry = _findEntry(archive, '${prefix}DELTA.json');
+    if (entry == null) return '';
+    final decoded = jsonDecode(utf8.decode(entry.content as List<int>));
+    if (decoded is! Map) return '';
+    return decoded['from']?.toString() ?? '';
+  } catch (_) {
+    return '';
+  } finally {
+    input?.close();
+  }
+}
+
 String readZipVersion(String zipPath) {
   if (!File(zipPath).existsSync()) return '';
   InputFileStream? input;
@@ -150,6 +170,16 @@ ApplyStats applyZip({
         : jsonDecode(utf8.decode(deltaEntry.content as List<int>)) as Map<String, dynamic>;
     if (delta['full_required'] == true) {
       throw FullPackageRequired('该增量包要求完整包（模型有变更）');
+    }
+    final deltaBase = delta['from']?.toString() ?? '';
+    if (deltaBase.isNotEmpty) {
+      // 基座校验：底子不对（或版本未知）一律完整包，宁重勿缺。
+      final local = (readLocalVersion(target)).replaceAll(RegExp('^v'), '').trim();
+      final base = deltaBase.startsWith('v') ? deltaBase.substring(1) : deltaBase;
+      if (local.isEmpty || local != base) {
+        throw FullPackageRequired(
+            '增量包基座 $base 与已装版本 ${local.isEmpty ? '未知' : local} 不一致，请改用完整包');
+      }
     }
 
     final stamp = _stampNow();

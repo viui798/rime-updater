@@ -377,6 +377,7 @@ class _HomePageState extends State<HomePage> {
       }
       final package = await preparePackage(
         settings: _settings,
+        installedVersions: _profiles.map((p) => rime.readLocalVersion(p.path)).toList(),
         log: _logLine,
         progress: (percent) {
           if (mounted) setState(() => _progress = percent / 100);
