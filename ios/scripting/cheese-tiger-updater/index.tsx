@@ -3,9 +3,6 @@ import {
   List,
   Navigation,
   NavigationStack,
-  Picker,
-  ProgressView,
-  Script,
   Section,
   Text,
   useState,
@@ -15,6 +12,8 @@ import { storage } from "./utils/common"
 import { deployInputMethod, type InputMethod } from "./utils/deploy"
 import { fetchLatest, type ReleaseInfo } from "./utils/github"
 import { downloadAsset, installZip } from "./utils/install"
+
+console.log("[cheese-tiger] script loaded")
 
 const CONFIG_KEY = "cheese_tiger_ios_config"
 
@@ -198,20 +197,40 @@ function UpdaterView() {
           <Button action={install} disabled={busy}>
             {remote ? `下载并安装 v${remote.version}` : "下载并安装"}
           </Button>
-          {busy && percent > 0 ? <ProgressView value={percent} /> : null}
+          {busy && percent > 0 ? (
+            <Text foregroundStyle="secondaryLabel">
+              下载 {Math.round(percent * 100)}%
+            </Text>
+          ) : null}
         </Section>
 
         <Section header={<Text>部署方式</Text>}>
-          <Picker
-            value={config.inputMethod}
-            onChanged={(value: InputMethod) =>
-              updateConfig({ ...config, inputMethod: value })
+          <Text>
+            当前：{config.inputMethod === "hamster"
+              ? "仓输入法"
+              : config.inputMethod === "hamster3"
+                ? "元书"
+                : "手动部署"}
+          </Text>
+          <Button
+            action={() =>
+              updateConfig({ ...config, inputMethod: "hamster" })
             }
           >
-            <Text tag="hamster">仓输入法</Text>
-            <Text tag="hamster3">元书</Text>
-            <Text tag="none">手动部署</Text>
-          </Picker>
+            用仓输入法部署
+          </Button>
+          <Button
+            action={() =>
+              updateConfig({ ...config, inputMethod: "hamster3" })
+            }
+          >
+            用元书部署
+          </Button>
+          <Button
+            action={() => updateConfig({ ...config, inputMethod: "none" })}
+          >
+            手动部署
+          </Button>
         </Section>
 
         <Section header={<Text>日志</Text>}>
@@ -223,11 +242,14 @@ function UpdaterView() {
 }
 
 async function run() {
-  await Navigation.present({
-    element: <UpdaterView />,
-    modalPresentationStyle: "overFullScreen",
-  })
-  Script.exit()
+  try {
+    await Navigation.present({
+      element: <UpdaterView />,
+      modalPresentationStyle: "overFullScreen",
+    })
+  } catch (error) {
+    console.error("[cheese-tiger] 启动失败", error)
+  }
 }
 
 run()
