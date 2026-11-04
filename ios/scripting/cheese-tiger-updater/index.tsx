@@ -1,18 +1,25 @@
 import {
   Button,
   HStack,
+  Image,
   List,
   Navigation,
   NavigationStack,
   Section,
   Spacer,
+  TabView,
   Text,
+  Toggle,
+  Toolbar,
+  ToolbarItem,
   VStack,
+  useEffect,
   useState,
 } from "scripting"
 
 import { basename, storage } from "./utils/common"
 import { deployInputMethod, type InputMethod } from "./utils/deploy"
+import { list } from "./utils/fs"
 import { fetchLatest, type ReleaseInfo } from "./utils/github"
 import { downloadAsset, installZip } from "./utils/install"
 
@@ -33,6 +40,8 @@ type Config = {
   activeId: string
   token: string
   installedVersions: Record<string, string>
+  autoCheckOnLaunch: boolean
+  verboseLog: boolean
 }
 
 function normalizeMethod(value: any): InputMethod {
@@ -75,7 +84,14 @@ function normalizeConfig(data: any): Config {
   const activeId = dirs.some((dir) => dir.id === data?.activeId)
     ? String(data.activeId)
     : dirs[0]?.id ?? ""
-  return { dirs, activeId, token: String(data?.token ?? ""), installedVersions }
+  return {
+    dirs,
+    activeId,
+    token: String(data?.token ?? ""),
+    installedVersions,
+    autoCheckOnLaunch: data?.autoCheckOnLaunch === true,
+    verboseLog: data?.verboseLog !== false,
+  }
 }
 
 function loadConfig(): Config {
@@ -85,7 +101,14 @@ function loadConfig(): Config {
       return normalizeConfig(JSON.parse(raw))
     }
   } catch {}
-  return { dirs: [], activeId: "", token: "", installedVersions: {} }
+  return {
+    dirs: [],
+    activeId: "",
+    token: "",
+    installedVersions: {},
+    autoCheckOnLaunch: false,
+    verboseLog: true,
+  }
 }
 
 function saveConfig(config: Config) {
@@ -109,7 +132,7 @@ function releaseSnippet(body: string): string {
     .replace(/\r/g, "")
     .split("\n")
     .filter((line) => line.trim())
-    .slice(0, 8)
+    .slice(0, 10)
     .join("\n")
 }
 
@@ -125,12 +148,14 @@ function KvRow(props: { label: string; value: string; color?: string }) {
   )
 }
 
-function UpdaterView() {
+function MainView() {
+  const dismiss = Navigation.useDismiss()
   const [config, setConfig] = useState<Config>(loadConfig())
   const [remote, setRemote] = useState<ReleaseInfo | null>(null)
   const [busy, setBusy] = useState(false)
   const [percent, setPercent] = useState(0)
   const [log, setLog] = useState("")
+  const [files, setFiles] = useState<string[]>([])
 
   const activeDir =
     config.dirs.find((dir) => dir.id === config.activeId) ?? config.dirs[0]
@@ -171,6 +196,26 @@ function UpdaterView() {
       } catch {}
     }
     return dir.path
+  }
+
+  async function refreshFiles() {
+    const dir = activeDir
+    if (!dir) {
+      setFiles([])
+      return
+    }
+    try {
+      const target = await resolveTarget(dir)
+      const entries = await list(target)
+      setFiles(
+        entries
+          .filter((name) => name && name !== "." && name !== "..")
+          .sort((a, b) => a.localeCompare(b)),
+      )
+    } catch (error: any) {
+      setFiles([])
+      append(`无法读取目录：${String(error?.message ?? error)}`)
+    }
   }
 
   async function pickFolder() {
@@ -277,6 +322,21 @@ function UpdaterView() {
     append(`已移除目录：${dir.name}`)
   }
 
+  async function editToken() {
+    const DialogApi: any = (globalThis as any).Dialog
+    if (!DialogApi?.prompt) return
+    const input = await DialogApi.prompt({
+      title: "GitHub Token",
+      message: "可留空。填写后可以把匿名 API 限流从 60 次/小时提高到 5000 次/小时。",
+      defaultValue: config.token,
+      confirmLabel: "保存",
+      cancelLabel: "取消",
+    })
+    if (input == null) return
+    updateConfig({ ...config, token: String(input).trim() })
+    append("Token 已保存")
+  }
+
   async function check() {
     if (busy) return
     setBusy(true)
@@ -363,106 +423,255 @@ function UpdaterView() {
     }
   }
 
-  return (
-    <NavigationStack>
-      <List
-        navigationTitle="芝士虎整更新器"
-        navigationBarTitleDisplayMode="inline"
-        listStyle="insetGroup"
-      >
-        <Section header={<Text>本地信息</Text>}>
-          {config.dirs.length === 0 ? (
-            <Text foregroundStyle="secondaryLabel">
-              还没有目录，点下面的「添加目录」，在「文件」里选择 Rime 用户目录。
-            </Text>
-          ) : null}
-          {config.dirs.map((dir) => (
-            <VStack key={dir.id} spacing={2}>
-              <Text>{dir.id === config.activeId ? `● ${dir.name}` : dir.name}</Text>
-              <Text font="caption" foregroundStyle="secondaryLabel">
-                {dir.path}
-              </Text>
-              <Text font="caption" foregroundStyle="secondaryLabel">
-                {`部署：${methodLabel(dir.inputMethod)}${
-                  config.installedVersions[dir.id]
-                    ? ` · 已装 v${config.installedVersions[dir.id]}`
-                    : ""
-                }`}
-              </Text>
-              <HStack spacing={8}>
-                <Button
-                  title="设为当前"
-                  action={() => setActive(dir.id)}
-                  disabled={dir.id === config.activeId || busy}
-                />
-                <Button title="重命名" action={() => renameDir(dir)} disabled={busy} />
-                <Button title="部署方式" action={() => cycleMethod(dir)} disabled={busy} />
-                <Button title="移除" action={() => removeDir(dir)} disabled={busy} />
-              </HStack>
-            </VStack>
-          ))}
-          <Button title="添加目录" action={pickFolder} disabled={busy} />
-        </Section>
+  useEffect(() => {
+    void refreshFiles()
+    if (config.autoCheckOnLaunch) void check()
+  }, [])
 
-        <Section header={<Text>状态</Text>}>
-          <KvRow label="状态" value={status.text} color={status.color} />
-          <KvRow
-            label="远端"
-            value={remote ? `v${remote.version} · ${remote.chosen.name}` : "未检查"}
+  const homeList = (
+    <List
+      navigationTitle="芝士虎整"
+      navigationBarTitleDisplayMode="inline"
+      listStyle="insetGroup"
+      toolbar={
+        <Toolbar>
+          <ToolbarItem placement="topBarLeading">
+            <Button action={dismiss}>
+              <Image systemName="xmark.circle.fill" foregroundStyle="systemRed" />
+            </Button>
+          </ToolbarItem>
+          <ToolbarItem placement="topBarTrailing">
+            <Button
+              title=""
+              systemImage="questionmark.circle"
+              action={() => {
+                const DialogApi: any = (globalThis as any).Dialog
+                void DialogApi?.alert?.({
+                  title: "使用说明",
+                  message:
+                    "1. 在「设置」里添加 Rime 目录并命名。\n" +
+                    "2. 点「检查更新」读取芝士虎整最新版本。\n" +
+                    "3. 点「安装当前」或「安装全部」。\n" +
+                    "4. 安装完成后按各目录的部署方式重新部署。",
+                  confirmLabel: "知道了",
+                })
+              }}
+            />
+          </ToolbarItem>
+        </Toolbar>
+      }
+    >
+      <Section header={<Text>本地信息</Text>}>
+        <KvRow label="当前目录" value={activeDir?.name ?? "未选择"} />
+        {activeDir ? (
+          <Text font="caption" foregroundStyle="secondaryLabel">
+            {activeDir.path}
+          </Text>
+        ) : null}
+        <KvRow
+          label="已安装"
+          value={installedVersion ? `v${installedVersion}` : "未知"}
+        />
+        <KvRow
+          label="部署方式"
+          value={activeDir ? methodLabel(activeDir.inputMethod) : "-"}
+        />
+      </Section>
+
+      <Section header={<Text>状态</Text>}>
+        <KvRow label="状态" value={status.text} color={status.color} />
+        <KvRow
+          label="远端"
+          value={remote ? `v${remote.version}` : "未检查"}
+        />
+        {progressText ? <Text>{progressText}</Text> : null}
+        {config.verboseLog ? (
+          <Text font="caption" foregroundStyle="secondaryLabel">
+            {log || "等待操作"}
+          </Text>
+        ) : null}
+      </Section>
+
+      <Section header={<Text>操作</Text>}>
+        <HStack spacing={8}>
+          <Button title="检查更新" action={check} disabled={busy} />
+          <Button
+            title="安装当前"
+            action={() => install(false)}
+            disabled={busy || !activeDir}
           />
-          <KvRow label="当前目录" value={activeDir?.name ?? "未选择"} />
-          {progressText ? <Text>{progressText}</Text> : null}
-        </Section>
-
-        <Section header={<Text>操作</Text>}>
-          <HStack spacing={8}>
-            <Button title="检查更新" action={check} disabled={busy} />
-            <Button
-              title="安装当前"
-              action={() => install(false)}
-              disabled={busy || !activeDir}
-            />
-            <Button
-              title="部署当前"
-              action={deployActive}
-              disabled={busy || !activeDir}
-            />
-          </HStack>
-          {config.dirs.length > 1 ? (
-            <Button
-              title="安装到全部目录"
-              action={() => install(true)}
-              disabled={busy}
-            />
-          ) : null}
-        </Section>
-
-        <Section header={<Text>远程信息</Text>}>
-          <KvRow label="版本" value={remote ? `v${remote.version}` : "未检查"} />
-          <KvRow label="资产" value={remote?.chosen.name ?? "-"} />
-          <KvRow
-            label="发布"
-            value={remote?.publishedAt ? remote.publishedAt.slice(0, 10) : "-"}
+          <Button
+            title="部署当前"
+            action={deployActive}
+            disabled={busy || !activeDir}
           />
-          {remote?.body ? (
+        </HStack>
+        {config.dirs.length > 1 ? (
+          <Button
+            title="安装到全部目录"
+            action={() => install(true)}
+            disabled={busy}
+          />
+        ) : null}
+      </Section>
+
+      <Section header={<Text>远程信息</Text>}>
+        <KvRow label="版本" value={remote ? `v${remote.version}` : "未检查"} />
+        <KvRow label="资产" value={remote?.chosen.name ?? "-"} />
+        <KvRow
+          label="发布"
+          value={remote?.publishedAt ? remote.publishedAt.slice(0, 10) : "-"}
+        />
+      </Section>
+
+      <Section header={<Text>更新说明</Text>}>
+        <Text font="caption" foregroundStyle="secondaryLabel">
+          {remote?.body ? releaseSnippet(remote.body) : "检查更新后显示"}
+        </Text>
+      </Section>
+    </List>
+  )
+
+  const settingsList = (
+    <List
+      navigationTitle="设置"
+      navigationBarTitleDisplayMode="inline"
+      listStyle="insetGroup"
+    >
+      <Section header={<Text>目录</Text>}>
+        {config.dirs.length === 0 ? (
+          <Text foregroundStyle="secondaryLabel">
+            还没有目录，点下面的「添加目录」，在「文件」里选择 Rime 用户目录。
+          </Text>
+        ) : null}
+        {config.dirs.map((dir) => (
+          <VStack key={dir.id} spacing={2}>
+            <Text>{dir.id === config.activeId ? `● ${dir.name}` : dir.name}</Text>
             <Text font="caption" foregroundStyle="secondaryLabel">
-              {releaseSnippet(remote.body)}
+              {dir.path}
             </Text>
-          ) : null}
-        </Section>
+            <Text font="caption" foregroundStyle="secondaryLabel">
+              {`部署：${methodLabel(dir.inputMethod)}${
+                config.installedVersions[dir.id]
+                  ? ` · 已装 v${config.installedVersions[dir.id]}`
+                  : ""
+              }`}
+            </Text>
+            <HStack spacing={8}>
+              <Button
+                title="设为当前"
+                action={() => setActive(dir.id)}
+                disabled={dir.id === config.activeId || busy}
+              />
+              <Button title="重命名" action={() => renameDir(dir)} disabled={busy} />
+              <Button title="部署方式" action={() => cycleMethod(dir)} disabled={busy} />
+              <Button title="移除" action={() => removeDir(dir)} disabled={busy} />
+            </HStack>
+          </VStack>
+        ))}
+        <Button title="添加目录" action={pickFolder} disabled={busy} />
+      </Section>
 
-        <Section header={<Text>日志</Text>}>
-          <Text font="caption">{log || "等待操作"}</Text>
-        </Section>
-      </List>
-    </NavigationStack>
+      <Section header={<Text>更新设置</Text>}>
+        <Toggle
+          title="启动时自动检查"
+          value={config.autoCheckOnLaunch}
+          onChanged={(value: boolean) =>
+            updateConfig({ ...config, autoCheckOnLaunch: value })
+          }
+        />
+        <Toggle
+          title="显示详细日志"
+          value={config.verboseLog}
+          onChanged={(value: boolean) =>
+            updateConfig({ ...config, verboseLog: value })
+          }
+        />
+      </Section>
+
+      <Section header={<Text>GitHub</Text>}>
+        <KvRow label="Token" value={config.token ? "已设置" : "未设置"} />
+        <Button title="设置 Token" action={editToken} />
+        <Button
+          title="清除 Token"
+          action={() => updateConfig({ ...config, token: "" })}
+          disabled={!config.token}
+        />
+      </Section>
+
+      <Section header={<Text>关于</Text>}>
+        <KvRow label="脚本版本" value="1.0.0" />
+        <KvRow label="方案仓库" value="viui798/viui-tiger-sentense" />
+      </Section>
+    </List>
+  )
+
+  const filesList = (
+    <List
+      navigationTitle="文件"
+      navigationBarTitleDisplayMode="inline"
+      listStyle="insetGroup"
+    >
+      <Section header={<Text>当前目录</Text>}>
+        <Text>{activeDir?.path ?? "未选择目录"}</Text>
+        <Button title="刷新目录" action={refreshFiles} />
+      </Section>
+      <Section header={<Text>目录内容</Text>}>
+        {files.length === 0 ? (
+          <Text foregroundStyle="secondaryLabel">目录为空或未选择目录</Text>
+        ) : (
+          files.map((name) => <Text key={name}>{name}</Text>)
+        )}
+      </Section>
+    </List>
+  )
+
+  return (
+    <TabView>
+      <VStack
+        tabItem={
+          <>
+            <Image systemName="house.fill" />
+            <Text>主页</Text>
+          </>
+        }
+        tag={1}
+        frame={{ maxWidth: "infinity", maxHeight: "infinity" }}
+      >
+        <NavigationStack>{homeList}</NavigationStack>
+      </VStack>
+      <VStack
+        tabItem={
+          <>
+            <Image systemName="folder.fill" />
+            <Text>文件</Text>
+          </>
+        }
+        tag={2}
+        frame={{ maxWidth: "infinity", maxHeight: "infinity" }}
+      >
+        <NavigationStack>{filesList}</NavigationStack>
+      </VStack>
+      <VStack
+        tabItem={
+          <>
+            <Image systemName="gearshape.fill" />
+            <Text>设置</Text>
+          </>
+        }
+        tag={3}
+        frame={{ maxWidth: "infinity", maxHeight: "infinity" }}
+      >
+        <NavigationStack>{settingsList}</NavigationStack>
+      </VStack>
+    </TabView>
   )
 }
 
 async function run() {
   try {
     await Navigation.present({
-      element: <UpdaterView />,
+      element: <MainView />,
       modalPresentationStyle: "overFullScreen",
     })
   } catch (error) {
