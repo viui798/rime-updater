@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 
 import '../models.dart';
+import 'deployer.dart';
 
 const markerFile = '.cheese-tiger-version';
 const backupDirName = '.cheese-tiger-backup';
@@ -68,12 +69,14 @@ bool looksLikeRimeDir(String path) {
   return false;
 }
 
-List<Profile> detectProfiles() {
+List<Profile> detectProfiles({List<String> hidden = const []}) {
   final profiles = <Profile>[];
   final seen = <String>{};
+  final skipped = hidden.map(p.normalize).toSet();
 
   void add(String label, String path, String kind) {
     final clean = p.normalize(path);
+    if (skipped.contains(clean)) return;
     if (!Directory(clean).existsSync()) return;
     if (!looksLikeRimeDir(clean)) return;
     if (!seen.add(clean)) return;
@@ -99,13 +102,24 @@ List<Profile> detectProfiles() {
       'trime',
     );
   } else if (Platform.isWindows) {
-    if (appDataDir.isNotEmpty) {
-      add('小狼毫', p.join(appDataDir, 'Rime'), 'weasel');
-    }
+    // 小狼毫用 %APPDATA%\Rime（由注册表记录），虎韵用自己的
+    // %LOCALAPPDATA%\Tigrime\Rime，两者用户目录并不相同。
+    final weaselDir = weaselUserDir();
+    final tigrimeDir = tigrimeUserDir();
+    if (weaselDir.isNotEmpty) add('小狼毫', weaselDir, 'weasel');
+    if (tigrimeDir.isNotEmpty) add('虎韵', tigrimeDir, 'tigrime');
+
     for (final root in [appDataDir, localAppDataDir]) {
       if (root.isEmpty || !Directory(root).existsSync()) continue;
       _scanWindows(root, 1, (found) {
-        add(p.basename(found), found, 'unknown');
+        // 跳过已识别目录的子目录（如 Rime/build）。
+        for (final profile in profiles) {
+          if (p.isWithin(profile.path, found)) return;
+        }
+        if (p.basename(found) == 'build') return;
+        final kind =
+            found.toLowerCase().contains('tigrime') ? 'tigrime' : 'unknown';
+        add(p.basename(found), found, kind);
       });
     }
   }

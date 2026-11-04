@@ -344,7 +344,7 @@ class _SyncDialogState extends State<SyncDialog> {
         log: _line,
       );
       if (count > 0 && widget.settings.deploy) {
-        deployProfile(
+        await deployProfile(
           profile,
           restart: widget.settings.restart,
           log: _line,

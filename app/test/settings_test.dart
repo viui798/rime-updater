@@ -27,17 +27,20 @@ void main() {
     expect(profiles.single.kind, 'unknown');
   });
 
-  test('手动添加的目录会写进设置', () {
+  test('手动添加的目录与隐藏目录会写进设置', () {
     final settings = Settings(
       customDirs: [p.join('/tmp', 'Rime'), p.join('/tmp', 'Weasel')],
       customNames: {p.join('/tmp', 'Rime'): '我的鼠须管'},
+      hiddenDirs: [p.join('/tmp', 'old-ime')],
     );
     final decoded = Settings.fromJson(
       jsonDecode(jsonEncode(settings.toJson())) as Map<String, dynamic>,
     );
     expect(decoded.customDirs, settings.customDirs);
     expect(decoded.customNames, settings.customNames);
+    expect(decoded.hiddenDirs, settings.hiddenDirs);
     expect(decoded.copyWith(customDirs: ['/one']).customDirs, ['/one']);
+    expect(decoded.copyWith(hiddenDirs: ['/two']).hiddenDirs, ['/two']);
   });
 
   test('自定义名称会替换目录名作为显示名', () {

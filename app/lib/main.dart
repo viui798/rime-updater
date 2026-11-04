@@ -141,7 +141,7 @@ class _HomePageState extends State<HomePage> {
   }
 
   void _refreshProfiles() {
-    final profiles = rime.detectProfiles();
+    final profiles = rime.detectProfiles(hidden: _settings.hiddenDirs);
     for (final custom in rime.profilesFromPaths(
       _settings.customDirs,
       names: _settings.customNames,
@@ -201,12 +201,67 @@ class _HomePageState extends State<HomePage> {
 
     final updated = _settings.copyWith(
       customDirs: [..._settings.customDirs, normalized],
+      hiddenDirs: _settings.hiddenDirs
+          .where((dir) => p.normalize(dir) != normalized)
+          .toList(),
     );
     saveSettings(updated);
     setState(() => _settings = updated);
     _refreshProfiles();
     setState(() => _selected.add(normalized));
     _setStatus('已添加 ${p.basename(normalized)}');
+  }
+
+  Future<void> _removeProfile(Profile profile) async {
+    if (_busy) return;
+    final manual = _settings.customDirs.contains(profile.path);
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('删除设备'),
+        content: Text(
+          '从列表移除「${profile.label}」？\n'
+          '${profile.path}\n\n'
+          '只会取消识别，不会删除任何 Rime 文件。'
+          '${manual ? '需要时可用「+」再次添加。' : '删除后不会再被自动识别，需要时点「+」手动添加。'}',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('删除'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    final updated = manual
+        ? _settings.copyWith(
+            customDirs: _settings.customDirs
+                .where((dir) => dir != profile.path)
+                .toList(),
+            customNames: Map<String, String>.of(_settings.customNames)
+              ..remove(profile.path),
+          )
+        : _settings.copyWith(
+            hiddenDirs: [..._settings.hiddenDirs, profile.path],
+          );
+    saveSettings(updated);
+    _known.remove(profile.path);
+    setState(() {
+      _settings = updated;
+      _selected.remove(profile.path);
+      _profiles = _profiles
+          .where((item) => item.path != profile.path)
+          .toList();
+    });
+    _refreshProfiles();
+    _refreshBackups();
+    _setStatus('已删除设备 ${profile.label}');
   }
 
   void _refreshBackups() {
@@ -371,7 +426,7 @@ class _HomePageState extends State<HomePage> {
         }
 
         if (_settings.deploy && !dryRun) {
-          deployProfile(profile, restart: _settings.restart, log: _logLine);
+          await deployProfile(profile, restart: _settings.restart, log: _logLine);
         }
       }
 
@@ -423,7 +478,7 @@ class _HomePageState extends State<HomePage> {
     try {
       rollback(target: profile.path, stamp: backup.stamp, log: _logLine);
       if (_settings.deploy) {
-        deployProfile(profile, restart: _settings.restart, log: _logLine);
+        await deployProfile(profile, restart: _settings.restart, log: _logLine);
       }
       setState(() => _progress = 1);
       _setStatus('回滚完成');
@@ -488,7 +543,11 @@ class _HomePageState extends State<HomePage> {
           _logLine('  已创建备份 ${stats.backupStamp}');
         }
         if (_settings.deploy) {
-          deployProfile(profile, restart: _settings.restart, log: _logLine);
+          await deployProfile(
+            profile,
+            restart: _settings.restart,
+            log: _logLine,
+          );
         }
       }
       if (!mounted) return;
@@ -561,7 +620,11 @@ class _HomePageState extends State<HomePage> {
           );
           restoreUserData(backup, log: _logLine);
           if (_settings.deploy) {
-            deployProfile(profile, restart: _settings.restart, log: _logLine);
+            await deployProfile(
+              profile,
+              restart: _settings.restart,
+              log: _logLine,
+            );
           }
           _logLine('  ${profile.label} 已切换到 ${stats.copied} 个新文件');
         } catch (error) {
@@ -747,7 +810,11 @@ class _HomePageState extends State<HomePage> {
           _logLine('  已创建备份 ${stats.backupStamp}');
         }
         if (_settings.deploy) {
-          deployProfile(profile, restart: _settings.restart, log: _logLine);
+          await deployProfile(
+            profile,
+            restart: _settings.restart,
+            log: _logLine,
+          );
         }
       }
 
@@ -1388,11 +1455,36 @@ class _HomePageState extends State<HomePage> {
                               fontSize: 11,
                             ),
                           ),
-                          secondary: Text(
-                            current.isEmpty ? '未知' : 'v$current',
-                            style: theme.textTheme.bodyMedium?.copyWith(
-                              fontFeatures: const [FontFeature.tabularFigures()],
-                            ),
+                          secondary: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                current.isEmpty ? '未知' : 'v$current',
+                                style: theme.textTheme.bodyMedium?.copyWith(
+                                  fontFeatures: const [
+                                    FontFeature.tabularFigures(),
+                                  ],
+                                ),
+                              ),
+                              PopupMenuButton<String>(
+                                tooltip: '更多操作',
+                                enabled: !_busy,
+                                iconSize: 18,
+                                padding: EdgeInsets.zero,
+                                icon: const Icon(Icons.more_vert),
+                                onSelected: (value) {
+                                  if (value == 'remove') {
+                                    _removeProfile(profile);
+                                  }
+                                },
+                                itemBuilder: (context) => const [
+                                  PopupMenuItem(
+                                    value: 'remove',
+                                    child: Text('删除设备'),
+                                  ),
+                                ],
+                              ),
+                            ],
                           ),
                         );
                       },

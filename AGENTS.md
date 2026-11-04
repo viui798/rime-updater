@@ -55,6 +55,12 @@
   缓存 10 分钟，期间「仅预演 / 一键更新」复用同一 ReleaseInfo，不再重复请求
 - 设备区右上角「+」可手动指定 Rime 用户目录，保存到设置的 `custom_dirs`，
   名称存在 `custom_names`，手动设备可点铅笔改名
+- 每个设备行末尾有「⋮」菜单，可「删除设备」：自动识别的目录写进设置 `hidden_dirs`，
+  之后不再被探测到（要恢复只能点「+」手动添加，添加时会自动从 `hidden_dirs` 移除）；
+  手动添加的设备删除时只移除 `custom_dirs` / `custom_names`；删除不会动任何 Rime 文件
+- Windows 实机已跑通完整链路（2026-11-04 20:32）：界面「一键更新」把
+  小狼毫 0.3.1、虎韵 0.3.2 同时更新到 v0.3.23，各生成快照（覆盖 5 / 新增 3），
+  WeaselServer 于 20:32:25 重启、虎韵 build 于 20:32:42 重建；回滚尚未实跑
 - 支持**从本地 zip 安装**任意方案包（不限芝士虎整）：沿用同一套用户数据过滤、快照与部署；
   zip 前缀会自动识别 `update/`、单层方案目录或扁平结构
 - **换方案向导**：备份个人数据 → 清空旧运行文件（lua/opencc/models/dicts 等与根目录旧
@@ -91,10 +97,14 @@
 - 快照与回滚已在临时目录实测：覆盖/新增/删除均能正确还原，版本标记同步回退
 - 远端选择已验证：优先选中 `cheese-tiger-v0.3.23-update.zip`
 - 匿名可访问：不设 `GITHUB_TOKEN` 也能拉取 Release（token 仅避开 API 限流）
-- Windows（小狼毫 / 虎韵）代码路径已写，**未在 Windows 实机验证**
+- Windows（小狼毫 / 虎韵）已在实机验证：同时识别小狼毫（注册表 `RimeUserDir` →
+  `%APPDATA%\Rime`）与虎韵（`%LOCALAPPDATA%\Tigrime\Rime`）；虎韵部署调用
+  `Tigrime.Deployer.exe`（无参数，约 26 秒，自动停/起服务），小狼毫仍走
+  `WeaselServer /q` + `WeaselDeployer /deploy`
 - **Android（同文 / Trime）**：共用同一套 Dart 逻辑，目标目录 `/storage/emulated/0/rime`；
   启动请求 `MANAGE_EXTERNAL_STORAGE`（自用分发，不适合上架）；部署无法自动触发，
-  提示用户在 Trime 里点刷新；手动添加目录在 Android 上隐藏。**未在 Android 实机验证**
+  提示用户在 Trime 里点刷新；手动添加目录在 Android 上隐藏。模拟器（API 35）已跑通
+  检查 / 预演 / 正式更新，**未在 Android 实机验证**
 - iOS 平台目录已生成，但更新逻辑尚未接入
 
 ## 3. 文件说明
@@ -109,7 +119,7 @@
 | `app/lib/core/local_package.dart` | 系统文件 / 目录选择框、本地 zip 版本推断 |
 | `app/lib/core/zip_installer.dart` | 增量包解包、快照、回滚（基于 `archive` 包） |
 | `app/lib/core/scheme_switcher.dart` | 换方案：收集个人数据、备份、清理旧运行文件、恢复 |
-| `app/lib/core/deployer.dart` | 按前端执行部署 / 重启命令 |
+| `app/lib/core/deployer.dart` | 探测小狼毫 / 虎韵安装路径，按前端执行部署（异步，避免界面卡住） |
 | `app/lib/core/webdav_client.dart` | 极简 WebDAV 客户端：MKCOL / PUT / GET / DELETE + Basic Auth（路径逐段编码） |
 | `app/lib/core/sync_service.dart` | 云同步：同步库清单、文件树、上传/删除/下载、在线编辑 |
 | `app/lib/ui/sync_dialog.dart` | 云同步弹窗：WebDAV 配置、同步库文件管理、上传 / 下载 |
@@ -134,7 +144,10 @@ Flutter 端关键点：
 
 - `main.dart` 是单页 `HomePage`：设备表（含勾选）、远端版本、进度条、日志、备份列表；
   设置用弹窗，操作前有确认对话框；
-- `detectProfiles()`：mac 三条固定路径；Windows `%APPDATA%\Rime` + 深度 ≤4 扫描；
+- `detectProfiles()`：mac 三条固定路径；Windows 小狼毫取注册表 `RimeUserDir`（退回
+  `%APPDATA%\Rime`）、虎韵取 `%LOCALAPPDATA%\Tigrime\Rime`，再扫描 `%APPDATA%` /
+  `%LOCALAPPDATA%` 深度 ≤4 找含 `tiger*.schema.yaml` 的目录（跳过已识别目录的子目录与
+  `build/`）；
 - `applyZip()` 与 Python `apply_zip()` 行为一致：白名单跳过用户数据、`full_required`
   自动改用完整包、快照写 `manifest.json`、超大文件只记录不备份；
 - 所有网络请求走 `dart:io HttpClient`，支持 HTTP 代理（**不支持 socks5**，Dart 桌面端限制）；
@@ -181,7 +194,8 @@ Flutter 端关键点：
 3. **白名单跳过用户数据**：宁可少更新一个文件，也不能动 `*.userdb` 与开关记忆。
 4. **不写版本号到 `user.yaml`**：用独立 `.cheese-tiger-version`，避免污染 Rime 配置。
 5. **部署命令按前端写死**：Squirrel `--reload`、Fcitx5 `fcitx5-curl`、Weasel
-   `WeaselServer /q` + `WeaselDeployer /deploy`；元书没有 CLI 部署接口，只能提示或重启。
+   `WeaselServer /q` + `WeaselDeployer /deploy`、虎韵 `Tigrime.Deployer.exe`（无参数即完整
+   部署，自带停/起服务）；元书没有 CLI 部署接口，只能提示或重启。
 6. **只用标准库**：用户机器不一定有 pip 环境；代理通过 `urllib` ProxyHandler 支持。
 7. **不做自动升级自身**：脚本从仓库直接运行时没有可靠的自我替换路径，先保持手动。
 8. **主界面改用 Flutter**：一套 Dart 代码同时覆盖 macOS / Windows（后续 Android / iOS），
@@ -222,6 +236,14 @@ export JAVA_HOME="$HOME/android/jdk17/Contents/Home"
 export ANDROID_HOME=/opt/homebrew/share/android-commandlinetools
 flutter build apk --debug
 # 产物：build/app/outputs/flutter-apk/app-debug.apk
+
+# 本机 Windows 开发环境（2026-11-04）：
+#   Flutter 3.47.9 / Dart 3.13.7 在 C:\Users\23038\dev\flutter（用户 PATH 已加入）
+#   国内镜像：FLUTTER_STORAGE_BASE_URL=https://storage.flutter-io.cn
+#             PUB_HOSTED_URL=https://pub.flutter-io.cn
+#   VS BuildTools 2022 17.14（C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools）
+#   注：在 agent 的非交互 shell 里 flutter.bat 会卡住，可直接调用
+#   %FLUTTER_ROOT%\bin\cache\dart-sdk\bin\dart.exe 加 flutter_tools.snapshot 执行同名命令
 ```
 
 Python 侧（改脚本时）：
@@ -321,15 +343,24 @@ curl -s http://127.0.0.1:8766/api/state
    - 用模拟器（API 35）验证：启动、授权、识别 Trime、检查更新 v0.3.23、预演 8 文件、
      正式更新 8 文件 + 快照 + 回滚记录；`app-release.apk` 52.8MB；
    - Actions 增加 android job，产出 `android-apk` artifact。测试增至 33 项（新增窄屏布局）。
+25. Windows 实机接入（2026-11-04）：本机 Windows 开发环境搭建（Flutter 3.47.9 + VS
+   BuildTools 2022 C++ 工作负载，国内镜像）；修正识别逻辑——小狼毫读注册表
+   `HKCU\Software\Rime\Weasel\RimeUserDir`，虎韵读自己的 `%LOCALAPPDATA%\Tigrime\Rime`
+   （两者用户目录不同，之前会把虎韵误判成小狼毫）；新增虎韵部署
+   `Tigrime.Deployer.exe`（实测无参数调用约 26 秒，输出
+   `{"deployed":true,"server_resumed":true}`；`--ensure` 只检查不重建）；部署改为异步
+   `Process.run` 避免 26 秒卡住界面；`dart analyze` 无问题、`flutter test` 33 项通过、
+   `flutter build windows --release` 成功，实机识别出「小狼毫」与「虎韵」两个设备
+26. 设备删除（2026-11-04）：设备行末尾「⋮」→「删除设备」；自动识别的目录写入设置
+   `hidden_dirs`，`detectProfiles(hidden:)` 跳过；手动目录删除只清 `custom_dirs` /
+   `custom_names`；再次手动添加会自动解除隐藏。实机截图确认三行都有「⋮」，
+   隐藏 Weasel-RS 目录后识别数 3 → 2；`flutter test` 33 项通过
 
 ## 7. 下一步（按优先级）
 
-1. **Windows 实机验证**：在 Windows 上 `flutter pub get && flutter build windows --release`
-   （产物 `build\windows\x64\runner\Release\rime_updater.exe`，整个目录一起分发），确认
-   ① 能同时识别小狼毫与虎韵；② `WeaselServer` 路径探测正确；③ 部署后候选正常。
-   也可以推 `v*` tag，用 Actions 的 `windows-zip` artifact 拿到现成包。
+1. **Windows 回滚实跑**：识别、更新与部署已在实机验证（两设备 0.3.1/0.3.2 → 0.3.23，
+   快照与部署均成功）；还差从「备份与回滚」点一次回滚并确认部署后候选正常。
 2. **界面实跑更新**：macOS 目前只做了「检查 + 预演」；等有真实新版本时跑一次完整更新与回滚。
-   Android 模拟器已跑通完整更新（8 文件 + 快照），待真机复验。
 3. **云同步实机验证**：用真实 WebDAV 账号（坚果云 / Nextcloud）跑一遍「上传本机 →
    另一台设备下载云端」，确认目录创建、清单读写、单个文件增删与覆盖前备份都正常；
    若服务端返回 301/409，需要在 `webdav_client.dart` 里补处理。
@@ -353,18 +384,22 @@ curl -s http://127.0.0.1:8766/api/state
 
 ## 9. 交接快照（每次会话结束更新这一节）
 
-> 2026-11-04 · `main`（Android 适配，提交哈希见 `git log`）· 之前推送 `e2eab79`
+> 2026-11-04 · `main`（Android 适配已推送 `76471cd`；Windows 实机改动在此基础上变基）
 
 - **已完成并已推送**：Flutter 客户端（`app/`）、GitHub 方案 / 本地 zip / 换方案、
   手动目录与改名、可拖动布局、WebDAV 云同步、文件夹式同步库（上传 / 在线编辑 / 删除）、
-  启动不联网与 10 分钟检查缓存、GitHub Actions 三平台构建
-- **本会话新增（已提交待推送）**：Android 适配（权限、Trime 目录、文件选择、窄屏 UI、
-  Actions android job）；模拟器验证通过
-- **已验证**：`dart analyze` 无问题；`flutter test` 33 项通过；macOS 实跑
-  （三前端识别、远端 v0.3.23、预演 8 文件）；DMG 打包并安装到 `/Applications`；
-  Android 模拟器（API 35）实跑检查 / 预演 / 正式更新 + 快照
-- **未验证（优先做）**：Windows 实机（小狼毫 / 虎韵、WeaselServer 部署）、
-  Android 真机 + Trime 实际部署、真实 WebDAV 账号（坚果云 / Nextcloud，注意 301/409）
+  启动不联网与 10 分钟检查缓存、GitHub Actions 三平台构建、Android 端（权限、Trime 目录、
+  文件选择、窄屏 UI、Actions android job）
+- **本会话新增（待推送）**：Windows 开发环境（Flutter 3.47.9 + VS BuildTools 2022）；
+  小狼毫 / 虎韵分别识别（注册表 `RimeUserDir` 与 `%LOCALAPPDATA%\Tigrime\Rime`）；
+  虎韵部署 `Tigrime.Deployer.exe`；部署改异步；设备行「⋮」删除 + `hidden_dirs` 记忆
+- **已验证**：`dart analyze` 无问题；`flutter test` 33 项通过（Windows 上个别临时目录
+  清理偶发 `errno 32`，重跑即过）；macOS 实跑（三前端识别、预演 8 文件）；Android 模拟器
+  （API 35）检查 / 预演 / 正式更新 + 快照；`flutter build windows --release` 成功并安装到
+  `%LOCALAPPDATA%\Programs\RimeUpdater`；界面「一键更新」实跑两设备 0.3.1/0.3.2 →
+  v0.3.23（快照 + 部署成功）
+- **未验证（优先做）**：Windows 界面回滚；Android 真机 + Trime 实际部署；
+  真实 WebDAV 账号（坚果云 / Nextcloud，注意 301/409）
 - **不要改的约定**：启动不自动请求 GitHub；更新覆盖前必须有快照 / 备份；
   `*.userdb`、`user.yaml` 等个人数据不参与方案覆盖；云同步只走 `<kind>/files/<相对路径>`
 - **本机数据**：设置 / 设备 ID / 备份都在第 0 节列出的应用支持目录，不在仓库里

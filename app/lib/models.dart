@@ -66,6 +66,7 @@ class Settings {
     this.snapshot = true,
     this.customDirs = const [],
     this.customNames = const {},
+    this.hiddenDirs = const [],
     this.syncUrl = '',
     this.syncUser = '',
     this.syncPassword = '',
@@ -81,6 +82,7 @@ class Settings {
   final bool snapshot;
   final List<String> customDirs;
   final Map<String, String> customNames;
+  final List<String> hiddenDirs;
   final String syncUrl;
   final String syncUser;
   final String syncPassword;
@@ -96,6 +98,7 @@ class Settings {
     bool? snapshot,
     List<String>? customDirs,
     Map<String, String>? customNames,
+    List<String>? hiddenDirs,
     String? syncUrl,
     String? syncUser,
     String? syncPassword,
@@ -111,6 +114,7 @@ class Settings {
       snapshot: snapshot ?? this.snapshot,
       customDirs: customDirs ?? this.customDirs,
       customNames: customNames ?? this.customNames,
+      hiddenDirs: hiddenDirs ?? this.hiddenDirs,
       syncUrl: syncUrl ?? this.syncUrl,
       syncUser: syncUser ?? this.syncUser,
       syncPassword: syncPassword ?? this.syncPassword,
@@ -131,6 +135,7 @@ class Settings {
       customNames: (json['custom_names'] as Map?)
               ?.map((key, value) => MapEntry(key.toString(), value.toString())) ??
           const {},
+      hiddenDirs: (json['hidden_dirs'] as List? ?? const []).cast<String>(),
       syncUrl: json['sync_url'] as String? ?? '',
       syncUser: json['sync_user'] as String? ?? '',
       syncPassword: json['sync_password'] as String? ?? '',
@@ -149,6 +154,7 @@ class Settings {
       'snapshot': snapshot,
       'custom_dirs': customDirs,
       'custom_names': customNames,
+      'hidden_dirs': hiddenDirs,
       'sync_url': syncUrl,
       'sync_user': syncUser,
       'sync_password': syncPassword,

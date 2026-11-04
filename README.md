@@ -36,6 +36,9 @@ Windows 版在 Windows 机器上执行 `flutter build windows`。
 以及**从本地 zip 安装**：可以选择任意方案压缩包（雾凇拼音、白霜等）装到选中的设备，
 个人数据不会被覆盖，安装前同样会自动快照。设备识别不全时，点设备区右上角的「+」
 可以手动指定 Rime 用户目录，选择结果会保存在设置里；手动添加的设备可以点铅笔图标改名。
+每个设备行末尾有「⋮」菜单，可「删除设备」：自动识别的目录会被记住（设置里的
+`hidden_dirs`），之后不再出现在列表，也不会参与更新；需要时用「+」重新添加即可恢复。
+删除只影响列表，不会动任何 Rime 文件。
 设备、日志、备份三块区域之间的分隔条可以拖动调整高度，双击分隔条恢复默认。
 检查更新时日志会标注「（最新）」或「（可更新）」，备份区右上角可以一键「清理备份」。
 启动时**不会自动联网**：只有点「检查更新」才会请求 GitHub；检查结果在 10 分钟内会被
@@ -79,7 +82,9 @@ Windows 版在 Windows 机器上执行 `flutter build windows`。
 `app/build/macos/Build/Products/Release/RimeUpdater.app`，DMG 由
 `cd app && ./tool/make_dmg.sh` 生成。
 
-Windows 版代码路径已完成（窗口标题、ico 图标、注册表探测），但需要在 Windows 上构建。
+Windows 版已在 Windows 实机构建与运行：`flutter build windows --release` 后可执行
+`build\windows\x64\runner\Release\rime_updater.exe`，能同时识别小狼毫与虎韵，
+并分别用 `WeaselDeployer` / `Tigrime.Deployer.exe` 完成部署。
 仓库自带 GitHub Actions（`.github/workflows/build.yml`），推 tag 时会自动构建
 macOS DMG、Windows zip 与 Android APK 并创建 Release；也可以在 Actions 页面手动触发。
 
@@ -161,15 +166,18 @@ python3 update_desktop.py --source ~/Downloads/cheese-tiger-v0.3.23-update.zip -
 | macOS | 鼠须管 | `~/Library/Rime` |
 | macOS | 小企鹅（Fcitx5） | `~/.local/share/fcitx5/rime` |
 | macOS | 元书（Cobra） | `~/Library/Application Support/com.ihsiao.inputmethod.Cobra/RimeUserData` |
-| Windows | 小狼毫（Weasel） | `%APPDATA%\Rime` |
-| Windows | 虎韵及其他 | 扫描 `%APPDATA%` / `%LOCALAPPDATA%` 深度 ≤4，含 `tiger*.schema.yaml` 的目录 |
+| Windows | 小狼毫（Weasel） | 注册表 `RimeUserDir`，默认 `%APPDATA%\Rime` |
+| Windows | 虎韵（Tigrime） | `%LOCALAPPDATA%\Tigrime\Rime` |
+| Windows | 其他 | 扫描 `%APPDATA%` / `%LOCALAPPDATA%` 深度 ≤4，含 `tiger*.schema.yaml` 的目录 |
 
 部署方式：
 
 - 鼠须管：`Squirrel --reload`，找不到时回退 `rime_deployer --build`；
 - 小企鹅：`fcitx5-curl /config/addon/rime/deploy`，找不到时按 `--restart` 重启；
 - 元书：无命令行部署接口，按 `--restart` 重启，或手动重新部署；
-- 小狼毫：`WeaselServer /q` → `WeaselDeployer /deploy` → 重新拉起 `WeaselServer`。
+- 小狼毫：`WeaselServer /q` → `WeaselDeployer /deploy` → 重新拉起 `WeaselServer`；
+- 虎韵：`Tigrime.Deployer.exe`（不带参数即完整部署，自动停服务、重建、重新拉起，
+  约几十秒；部署期间界面会显示日志，不会卡住）。
 
 ## 不会覆盖的数据
 
@@ -207,7 +215,7 @@ python3 backup_userdata.py --restore <备份.zip> --target ~/Library/Rime --yes
 
 ## 当前边界
 
-- Windows（小狼毫 / 虎韵）代码路径已实现，尚未在 Windows 实机验证，首次使用建议先 `--dry-run`；
+- Windows（小狼毫 / 虎韵）已实机验证识别、更新与部署；
 - Android（同文 / Trime）客户端已在模拟器（API 35）跑通检查、预演与正式更新，待真机验证；iOS 尚未接入；
 - 只解决文件传输，方案编译由各前端自己的部署流程完成。
 

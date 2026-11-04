@@ -49,6 +49,7 @@ class _SettingsDialogState extends State<SettingsDialog> {
         snapshot: _snapshot,
         customDirs: widget.settings.customDirs,
         customNames: widget.settings.customNames,
+        hiddenDirs: widget.settings.hiddenDirs,
         syncUrl: widget.settings.syncUrl,
         syncUser: widget.settings.syncUser,
         syncPassword: widget.settings.syncPassword,
