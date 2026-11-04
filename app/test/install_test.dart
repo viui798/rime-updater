@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:archive/archive.dart';
+import 'package:crypto/crypto.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:rime_updater/core/local_package.dart';
@@ -21,6 +22,10 @@ void cleanupDir(Directory dir) {
     }
   });
 }
+
+
+Digest cryptoTestSha(String content) =>
+    sha256.convert(utf8.encode(content));
 
 void main() {
   test('应用增量包、跳过用户数据、快照与回滚', () {
@@ -79,6 +84,22 @@ void main() {
     expect(File(p.join(dir.path, 'lua/new.lua')).existsSync(), isFalse);
     expect(File(p.join(dir.path, 'lua/old.lua')).readAsStringSync(), 'OLD-OLD');
     expect(readLocalVersion(dir.path), '');
+  });
+
+  test('设备模型比对：缺失/不一致/一致', () async {
+    final dir = Directory.systemTemp.createTempSync('rime-model-');
+    final modelFile = File(p.join(dir.path, 'models', 'sentence-fivegram-mobile.bin'));
+    modelFile.createSync(recursive: true);
+    modelFile.writeAsStringSync('MODEL-V2');
+    void ignoreLog(String line) {}
+
+    final good = cryptoTestSha('MODEL-V2');
+    expect(await deviceModelMatches([dir.path], good.toString(), ignoreLog), isTrue);
+    expect(await deviceModelMatches([dir.path], 'deadbeef', ignoreLog), isFalse);
+    expect(await deviceModelMatches([dir.path], '', ignoreLog), isFalse);
+
+    final missing = Directory.systemTemp.createTempSync('rime-model-miss-');
+    expect(await deviceModelMatches([missing.path], good.toString(), ignoreLog), isFalse);
   });
 
   test('增量包基座不匹配会拒绝，匹配则放行', () {

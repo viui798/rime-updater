@@ -79,6 +79,14 @@ def sha256_file(path):
     return h.hexdigest()
 
 
+def sha256_file(path):
+    digest = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def read_sha256(path):
     text = Path(path).read_text(encoding="utf-8", errors="ignore").split()
     return text[0].lower() if text else None
@@ -212,15 +220,30 @@ def github_release(version, token, repo=None):
         return json.load(resp)
 
 
-def pick_asset(release):
+def pick_assets(release):
+    """把 Release 资产分成 delta / nomodel / full 三类。
+
+    无模型版（*-nomodel.zip）：不含 405MB 模型、其余与完整包一致，
+    供「落后几版但模型没变」的设备更新（MODEL.json 指纹比对）。
+    """
     assets = release.get("assets") or []
     updates = [a for a in assets if a.get("name", "").endswith("-update.zip")]
-    if updates:
-        return updates[0], True
-    full = [a for a in assets if a.get("name", "").endswith(".zip") and "-update" not in a.get("name", "")]
-    if full:
-        return full[0], False
-    raise UpdateError("Release 里没有可用的 zip 资产")
+    nomodels = [a for a in assets if a.get("name", "").endswith("-nomodel.zip")]
+    full = [a for a in assets if a.get("name", "").endswith(".zip")
+            and "-update" not in a.get("name", "")
+            and "-nomodel" not in a.get("name", "")]
+    if not full:
+        raise UpdateError("Release 里没有可用的完整 zip 资产")
+    return {"delta": updates[0] if updates else None,
+            "nomodel": nomodels[0] if nomodels else None,
+            "full": full[0]}
+
+
+def pick_asset(release):
+    assets = pick_assets(release)
+    if assets["delta"]:
+        return assets["delta"], True
+    return assets["full"], False
 
 
 def download(url, token, dest, opener=None, expected=None, log=print, on_progress=None):
@@ -586,7 +609,8 @@ def main():
             release = github_release(version, token)
         except Exception as exc:
             sys.exit(f"✗ 无法访问 GitHub Release：{exc}\n  若为 API 限流，可设置 GITHUB_TOKEN/GH_TOKEN，或用 --source 指定 zip")
-        asset, _ = pick_asset(release)
+        assets_map = pick_assets(release)
+        asset = assets_map["delta"] or assets_map["nomodel"] or assets_map["full"]
         version = (release.get("tag_name") or version).lstrip("v")
 
     if args.check:
@@ -614,6 +638,12 @@ def main():
             if not zip_path:
                 sys.exit("✗ 下载或校验失败")
     else:
+        # 阶梯：无增量包可用时，设备模型与本版一致则直接用无模型版
+        if assets_map["delta"] is None and assets_map["nomodel"] is not None:
+            expected_model = fetch_model_manifest()
+            if device_model_matches(expected_model):
+                print("  设备模型与本版一致，使用无模型版更新 ...")
+                asset = assets_map["nomodel"]
         assets = release.get("assets") or []
         sha_asset = next((a for a in assets if a.get("name") == asset["name"] + ".sha256"), None)
         if sha_asset:
@@ -659,6 +689,63 @@ def main():
         if input("继续？[y/N] ").strip().lower() not in ("y", "yes"):
             return
 
+    MODEL_FILE = "models/sentence-fivegram-mobile.bin"
+
+    def device_model_matches(expected_sha):
+        """所有目标目录的模型文件都存在且 sha256 与本版一致才可用无模型版。"""
+        if not expected_sha:
+            return False
+        for p in profiles:
+            f = Path(p["path"]) / MODEL_FILE
+            if not f.exists() or sha256_file(f) != expected_sha:
+                return False
+        return True
+
+    def fetch_model_manifest():
+        """下载 Release 里的 MODEL.json（1KB 指纹），失败返回 None。"""
+        assets = release.get("assets") or []
+        meta = next((a for a in assets if a.get("name") == "MODEL.json"), None)
+        if not meta:
+            return None
+        out = cache_dir / "MODEL.json"
+        if not download(meta["browser_download_url"], token, str(out), opener):
+            return None
+        try:
+            data = json.loads(out.read_text(encoding="utf-8"))
+            return str(data.get("sha256") or "") or None
+        except Exception:
+            return None
+
+    def prepare_asset(asset_obj, label):
+        assets = release.get("assets") or []
+        sha_asset = next((a for a in assets
+                          if a.get("name") == asset_obj["name"] + ".sha256"), None)
+        expected_arg = None
+        if sha_asset:
+            sha_path = cache_dir / sha_asset["name"]
+            if not sha_path.exists():
+                print(f"下载 {sha_asset['name']} ...")
+                if not download(sha_asset["browser_download_url"], token,
+                                str(sha_path), opener):
+                    sys.exit("✗ SHA256 文件下载失败")
+            expected_arg = read_sha256(sha_path)
+        out = cache_dir / asset_obj["name"]
+        if not args.no_cache and out.exists():
+            if expected_arg and verify_hash(out, expected_arg):
+                print(f"复用缓存 {out}")
+                return str(out), expected_arg
+            if not expected_arg and asset_obj.get("size") and \
+                    out.stat().st_size == asset_obj["size"]:
+                print(f"复用缓存 {out}（尺寸一致）")
+                return str(out), expected_arg
+            out.unlink(missing_ok=True)
+        print(f"下载 {label or asset_obj['name']} ...")
+        got = download(asset_obj["browser_download_url"], token, str(out), opener,
+                       expected_arg)
+        if not got:
+            sys.exit("✗ 下载或校验失败")
+        return str(out), expected_arg
+
     def apply_all(zip_path_arg, expected_arg):
         for p in profiles:
             print(f"\n[{p['label']}] {p['path']}")
@@ -680,6 +767,14 @@ def main():
         if not release or args.source:
             sys.exit(f"✗ {exc}")
         print(f"⚠ {exc}")
+        # 无模型阶梯：设备模型与本版一致 → 只更新其余文件（14MB vs 388MB）
+        assets_map = pick_assets(release)
+        expected_model = fetch_model_manifest()
+        if assets_map["nomodel"] and device_model_matches(expected_model):
+            print("  设备模型与本版一致，自动改用无模型版 ...")
+            nm_zip, nm_expected = prepare_asset(assets_map["nomodel"], "无模型版")
+            apply_all(nm_zip, nm_expected)
+            return
         print("  自动改用完整包 ...")
         full = next((a for a in release.get("assets") or []
                      if a.get("name", "").endswith(".zip")

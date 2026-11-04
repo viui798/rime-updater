@@ -8,7 +8,7 @@
    （原开发机本地目录 `/Users/viui/Desktop/rime更新器`，方案仓库在 `/Users/viui/Desktop/芝士虎整`）
 2. 装 Flutter stable（原机器为 3.47.9 / Dart 3），然后 `cd app && flutter pub get`
    （项目只用纯 Dart 依赖 `archive` / `crypto` / `path`，不需要 CocoaPods）
-3. 跑验证：`dart analyze`、`flutter test`，当前应为 **41 项全部通过**
+3. 跑验证：`dart analyze`、`flutter test`，当前应为 **43 项全部通过**
 4. 构建：
    - macOS：`DEVELOPER_DIR=/Applications/Xcode-16.2.0.app/Contents/Developer flutter build macos --release`
    - Windows：在 Windows 机器上 `flutter build windows --release`，产物

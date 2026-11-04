@@ -19,6 +19,7 @@ Future<void> main() async {
     settings: settings,
     installedVersions:
         profiles.map((profile) => readLocalVersion(profile.path)).toList(),
+    profilePaths: profiles.map((profile) => profile.path).toList(),
     log: print,
     progress: (percent) => print('  进度 $percent%'),
   );

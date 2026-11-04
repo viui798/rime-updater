@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:archive/archive.dart';
+import 'package:crypto/crypto.dart' as crypto;
 import 'package:path/path.dart' as p;
 
 import '../models.dart';
@@ -105,6 +106,30 @@ bool zipRequiresFull(String zipPath) {
   }
 }
 
+const modelFilePath = 'models/sentence-fivegram-mobile.bin';
+
+/// 设备模型比对：所有目标目录的模型文件都存在且 sha256 与本版一致。
+/// 无模型版只有在模型没变时才允许使用（否则代码与新模型/旧模型错配）。
+/// 流式哈希：405MB 模型不整载进内存。
+Future<bool> deviceModelMatches(List<String> profilePaths, String expectedSha,
+    void Function(String) log) async {
+  if (expectedSha.isEmpty) return false;
+  for (final dirPath in profilePaths) {
+    final file = File(p.join(dirPath, modelFilePath));
+    if (!file.existsSync()) {
+      log('  ${p.basename(dirPath)}：缺少模型文件 $modelFilePath');
+      return false;
+    }
+    final actual =
+        (await crypto.sha256.bind(file.openRead()).first).toString();
+    if (actual.toLowerCase() != expectedSha.toLowerCase()) {
+      log('  ${p.basename(dirPath)}：模型与本版不一致（旧模型），需要完整包');
+      return false;
+    }
+  }
+  return true;
+}
+
 /// 从包内 DELTA.json 读取基座版本（增量包适用的已装版本），没有返回空串。
 String deltaBaseVersion(String zipPath) {
   if (!File(zipPath).existsSync()) return '';
@@ -123,6 +148,19 @@ String deltaBaseVersion(String zipPath) {
   } finally {
     input?.close();
   }
+}
+
+/// 基座校验：任一目标目录的已装版本与增量基座不一致（或未知）返回 true。
+/// 增量包只覆盖 from->to 的差异，套在别的底子上会缺文件导致打不出字
+/// （2026-11-05 事故），宁重勿缺。
+bool deltaBaseMismatch(String zipPath, List<String> installedVersions) {
+  final base = deltaBaseVersion(zipPath);
+  if (base.isEmpty) return false;
+  final norm = base.startsWith('v') ? base.substring(1) : base;
+  return installedVersions.any((v) {
+    final local = (v.startsWith('v') ? v.substring(1) : v).trim();
+    return local.isEmpty || local != norm.trim();
+  });
 }
 
 String readZipVersion(String zipPath) {
