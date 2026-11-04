@@ -12,6 +12,8 @@ export type ReleaseInfo = {
   tag: string
   chosen: ReleaseAsset
   assets: ReleaseAsset[]
+  publishedAt: string
+  body: string
 }
 
 const OWNER = "viui798"
@@ -58,5 +60,12 @@ export async function fetchLatest(token?: string): Promise<ReleaseInfo> {
   )
   const chosen = delta ?? full
   if (!chosen) throw new Error("Release 里没有可用的 zip 资产")
-  return { version, tag, chosen, assets }
+  return {
+    version,
+    tag,
+    chosen,
+    assets,
+    publishedAt: String(json?.published_at ?? ""),
+    body: String(json?.body ?? ""),
+  }
 }

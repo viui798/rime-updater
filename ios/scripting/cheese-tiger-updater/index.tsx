@@ -5,6 +5,7 @@ import {
   Navigation,
   NavigationStack,
   Section,
+  Spacer,
   Text,
   VStack,
   useState,
@@ -58,7 +59,6 @@ function normalizeConfig(data: any): Config {
       ? { ...data.installedVersions }
       : {}
 
-  // 兼容单目录版本
   if (dirs.length === 0 && data?.path) {
     const path = String(data.path)
     const dir: DirEntry = {
@@ -75,12 +75,7 @@ function normalizeConfig(data: any): Config {
   const activeId = dirs.some((dir) => dir.id === data?.activeId)
     ? String(data.activeId)
     : dirs[0]?.id ?? ""
-  return {
-    dirs,
-    activeId,
-    token: String(data?.token ?? ""),
-    installedVersions,
-  }
+  return { dirs, activeId, token: String(data?.token ?? ""), installedVersions }
 }
 
 function loadConfig(): Config {
@@ -109,6 +104,27 @@ function inferMethod(path: string, name: string): InputMethod {
   return "hamster"
 }
 
+function releaseSnippet(body: string): string {
+  return body
+    .replace(/\r/g, "")
+    .split("\n")
+    .filter((line) => line.trim())
+    .slice(0, 8)
+    .join("\n")
+}
+
+function KvRow(props: { label: string; value: string; color?: string }) {
+  return (
+    <HStack>
+      <Text>{props.label}</Text>
+      <Spacer />
+      <Text foregroundStyle={props.color ?? "secondaryLabel"}>
+        {props.value}
+      </Text>
+    </HStack>
+  )
+}
+
 function UpdaterView() {
   const [config, setConfig] = useState<Config>(loadConfig())
   const [remote, setRemote] = useState<ReleaseInfo | null>(null)
@@ -118,6 +134,20 @@ function UpdaterView() {
 
   const activeDir =
     config.dirs.find((dir) => dir.id === config.activeId) ?? config.dirs[0]
+  const installedVersion = activeDir
+    ? config.installedVersions[activeDir.id] ?? ""
+    : ""
+
+  const status = !remote
+    ? { text: "未检查", color: "secondaryLabel" }
+    : installedVersion === remote.version
+      ? { text: "已最新", color: "systemGreen" }
+      : { text: "可更新", color: "systemOrange" }
+  const progressText = busy
+    ? percent > 0
+      ? `下载 ${Math.round(percent * 100)}%`
+      : "处理中…"
+    : ""
 
   function append(line: string) {
     setLog((previous) => (previous ? `${previous}\n${line}` : line))
@@ -182,12 +212,11 @@ function UpdaterView() {
         path,
         inputMethod: inferMethod(path, name),
       }
-      const next: Config = {
+      updateConfig({
         ...config,
         dirs: [...config.dirs, dir],
         activeId: dir.id,
-      }
-      updateConfig(next)
+      })
       append(`已添加目录：${name}（${methodLabel(dir.inputMethod)}部署）`)
     } catch (error: any) {
       append(`✗ 选择目录失败：${String(error?.message ?? error)}`)
@@ -263,6 +292,22 @@ function UpdaterView() {
     }
   }
 
+  async function deployActive() {
+    const dir = activeDir
+    if (!dir) return
+    if (dir.inputMethod === "none") {
+      append("当前目录设置为手动部署")
+      return
+    }
+    append(`请求 ${methodLabel(dir.inputMethod)} 部署…`)
+    try {
+      await deployInputMethod(dir.inputMethod)
+      append("已请求部署")
+    } catch (error: any) {
+      append(`✗ 部署失败：${String(error?.message ?? error)}`)
+    }
+  }
+
   async function install(all: boolean) {
     if (busy) return
     const targets = all ? config.dirs : activeDir ? [activeDir] : []
@@ -325,7 +370,7 @@ function UpdaterView() {
         navigationBarTitleDisplayMode="inline"
         listStyle="insetGroup"
       >
-        <Section header={<Text>Rime 用户目录</Text>}>
+        <Section header={<Text>本地信息</Text>}>
           {config.dirs.length === 0 ? (
             <Text foregroundStyle="secondaryLabel">
               还没有目录，点下面的「添加目录」，在「文件」里选择 Rime 用户目录。
@@ -350,53 +395,58 @@ function UpdaterView() {
                   action={() => setActive(dir.id)}
                   disabled={dir.id === config.activeId || busy}
                 />
-                <Button
-                  title="重命名"
-                  action={() => renameDir(dir)}
-                  disabled={busy}
-                />
-                <Button
-                  title="部署方式"
-                  action={() => cycleMethod(dir)}
-                  disabled={busy}
-                />
-                <Button
-                  title="移除"
-                  action={() => removeDir(dir)}
-                  disabled={busy}
-                />
+                <Button title="重命名" action={() => renameDir(dir)} disabled={busy} />
+                <Button title="部署方式" action={() => cycleMethod(dir)} disabled={busy} />
+                <Button title="移除" action={() => removeDir(dir)} disabled={busy} />
               </HStack>
             </VStack>
           ))}
           <Button title="添加目录" action={pickFolder} disabled={busy} />
         </Section>
 
-        <Section header={<Text>远端</Text>}>
-          <Text>
-            {remote ? `v${remote.version} · ${remote.chosen.name}` : "未检查"}
-          </Text>
-          <Button title="检查更新" action={check} disabled={busy} />
+        <Section header={<Text>状态</Text>}>
+          <KvRow label="状态" value={status.text} color={status.color} />
+          <KvRow
+            label="远端"
+            value={remote ? `v${remote.version} · ${remote.chosen.name}` : "未检查"}
+          />
+          <KvRow label="当前目录" value={activeDir?.name ?? "未选择"} />
+          {progressText ? <Text>{progressText}</Text> : null}
         </Section>
 
-        <Section header={<Text>安装</Text>}>
-          <Text>
-            {activeDir ? `当前目录：${activeDir.name}` : "请先添加目录"}
-          </Text>
-          <Button
-            title={remote ? `安装 v${remote.version} 到当前目录` : "安装到当前目录"}
-            action={() => install(false)}
-            disabled={busy || !activeDir}
-          />
+        <Section header={<Text>操作</Text>}>
+          <HStack spacing={8}>
+            <Button title="检查更新" action={check} disabled={busy} />
+            <Button
+              title="安装当前"
+              action={() => install(false)}
+              disabled={busy || !activeDir}
+            />
+            <Button
+              title="部署当前"
+              action={deployActive}
+              disabled={busy || !activeDir}
+            />
+          </HStack>
           {config.dirs.length > 1 ? (
             <Button
-              title={remote ? `安装 v${remote.version} 到全部目录` : "安装到全部目录"}
+              title="安装到全部目录"
               action={() => install(true)}
               disabled={busy}
             />
           ) : null}
-          {busy && percent > 0 ? (
-            <Text foregroundStyle="secondaryLabel">
-              {`下载 ${Math.round(percent * 100)}%`}
+        </Section>
+
+        <Section header={<Text>远程信息</Text>}>
+          <KvRow label="版本" value={remote ? `v${remote.version}` : "未检查"} />
+          <KvRow label="资产" value={remote?.chosen.name ?? "-"} />
+          <KvRow
+            label="发布"
+            value={remote?.publishedAt ? remote.publishedAt.slice(0, 10) : "-"}
+          />
+          {remote?.body ? (
+            <Text font="caption" foregroundStyle="secondaryLabel">
+              {releaseSnippet(remote.body)}
             </Text>
           ) : null}
         </Section>
