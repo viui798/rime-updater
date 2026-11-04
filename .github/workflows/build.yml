@@ -53,9 +53,6 @@ jobs:
         shell: pwsh
         run: |
           choco install innosetup -y --no-progress
-          # choco 的 innosetup 包只带官方语言，简体中文属于 Unofficial 翻译，需要单独下载
-          Invoke-WebRequest -Uri "https://raw.githubusercontent.com/jrsoftware/issrc/main/Files/Languages/Unofficial/ChineseSimplified.isl" `
-            -OutFile "${env:ProgramFiles(x86)}/Inno Setup 6/Languages/ChineseSimplified.isl"
           $iscc = "${env:ProgramFiles(x86)}/Inno Setup 6/ISCC.exe"
           & $iscc windows/installer.iss
       - uses: actions/upload-artifact@v4

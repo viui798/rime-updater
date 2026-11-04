@@ -33,7 +33,8 @@ VersionInfoProductName=Rime 更新器
 VersionInfoProductVersion=1.0.0
 
 [Languages]
-Name: "chinesesimplified"; MessagesFile: "compiler:Languages\ChineseSimplified.isl"
+; 简体中文 isl 收在仓库 languages/ 目录（choco 的 Inno Setup 不自带），相对路径本地与 CI 通用
+Name: "chinesesimplified"; MessagesFile: "languages\ChineseSimplified.isl"
 
 [Tasks]
 Name: "desktopicon"; Description: "创建桌面快捷方式"; GroupDescription: "其他:"; Flags: unchecked
