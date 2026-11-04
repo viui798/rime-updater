@@ -832,22 +832,257 @@ class _HomePageState extends State<HomePage> {
             final padding = compact ? 12.0 : 20.0;
             return Padding(
               padding: EdgeInsets.fromLTRB(padding, 12, padding, 12),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  _buildHeader(theme, compact),
-                  SizedBox(height: compact ? 8 : 12),
-                  _buildRemoteLine(theme, compact),
-                  const SizedBox(height: 4),
-                  _buildProgress(theme),
-                  const SizedBox(height: 8),
-                  Expanded(child: _buildResizableBody(theme)),
-                ],
-              ),
+              child: compact
+                  ? _buildCompactBody(theme)
+                  : Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        _buildHeader(theme),
+                        const SizedBox(height: 12),
+                        _buildRemoteLine(theme),
+                        const SizedBox(height: 4),
+                        _buildProgress(theme),
+                        const SizedBox(height: 8),
+                        Expanded(child: _buildResizableBody(theme)),
+                      ],
+                    ),
             );
           },
         ),
       ),
+    );
+  }
+
+  /// 手机窄屏：三块区域改为一张可滚动的页面，避免固定高度留下大片空白。
+  Widget _buildCompactBody(ThemeData theme) {
+    final deviceHeight = math.min(300.0, 58.0 * _profiles.length + 46.0);
+    final backupCount =
+        _backups.values.fold<int>(0, (sum, list) => sum + list.length);
+    final backupHeight =
+        backupCount == 0 ? 120.0 : math.min(220.0, 60.0 + 56.0 * backupCount);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _buildCompactHeader(theme),
+        const SizedBox(height: 10),
+        _buildStatusPill(theme),
+        const SizedBox(height: 10),
+        _buildMainButtonRow(),
+        const SizedBox(height: 4),
+        _buildShortcutRow(theme),
+        const SizedBox(height: 4),
+        _buildProgress(theme, compact: true),
+        const SizedBox(height: 8),
+        Expanded(
+          child: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                SizedBox(
+                  height: math.max(96, deviceHeight),
+                  child: _buildDevices(theme),
+                ),
+                const SizedBox(height: 10),
+                SizedBox(height: 220, child: _buildLog(theme)),
+                const SizedBox(height: 10),
+                SizedBox(
+                  height: backupHeight,
+                  child: _buildBackups(theme),
+                ),
+                const SizedBox(height: 8),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildCompactHeader(ThemeData theme) {
+    return Row(
+      children: [
+        _buildLogo(theme),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                '芝士虎整 · 更新器',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              Text(
+                '虎码 Rime 整合包 · 多设备更新',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ),
+        ),
+        IconButton(
+          tooltip: '设置',
+          onPressed: _busy ? null : _openSettings,
+          icon: const Icon(Icons.settings_outlined),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildStatusPill(ThemeData theme) {
+    final checked = _remoteVersion.isNotEmpty;
+    final outdated = checked &&
+        _profiles.any((profile) {
+          final current = rime.readLocalVersion(profile.path);
+          return current.isNotEmpty && current != _remoteVersion;
+        });
+    final color = !checked
+        ? theme.colorScheme.onSurfaceVariant
+        : (outdated ? theme.colorScheme.primary : const Color(0xFF15803D));
+    final text = checked
+        ? '远端最新：v$_remoteVersion · ${_remoteDelta ? '增量包' : '完整包'}'
+        : '远端最新：未检查';
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            checked ? Icons.cloud_done_outlined : Icons.cloud_off_outlined,
+            size: 16,
+            color: color,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              text,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.bodySmall?.copyWith(color: color),
+            ),
+          ),
+          if (checked)
+            Text(
+              outdated ? '可更新' : '已最新',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: color,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMainButtonRow() {
+    final style = ButtonStyle(
+      minimumSize: WidgetStateProperty.all(const Size.fromHeight(42)),
+    );
+    return Row(
+      children: [
+        Expanded(
+          child: OutlinedButton(
+            style: style,
+            onPressed: _busy ? null : _check,
+            child: const Text('检查更新'),
+          ),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: OutlinedButton(
+            style: style,
+            onPressed: _busy ? null : () => _runUpdate(dryRun: true),
+            child: const Text('仅预演'),
+          ),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: FilledButton(
+            style: style,
+            onPressed: _busy ? null : () => _runUpdate(dryRun: false),
+            child: const Text('一键更新'),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildShortcutRow(ThemeData theme) {
+    return Row(
+      children: [
+        Expanded(
+          child: TextButton.icon(
+            onPressed: _busy ? null : _openSync,
+            icon: const Icon(Icons.cloud_sync_outlined, size: 18),
+            label: const Text('云同步'),
+          ),
+        ),
+        Expanded(
+          child: TextButton.icon(
+            onPressed: _busy ? null : _openSyncLibrary,
+            icon: const Icon(Icons.folder_open, size: 18),
+            label: const Text('同步库'),
+          ),
+        ),
+        PopupMenuButton<String>(
+          tooltip: '更多功能',
+          icon: const Icon(Icons.more_horiz),
+          onSelected: (value) {
+            switch (value) {
+              case 'github':
+                _installFromGithub();
+                break;
+              case 'switch':
+                _switchScheme();
+                break;
+              case 'zip':
+                _installLocalZip();
+                break;
+            }
+          },
+          itemBuilder: (context) => const [
+            PopupMenuItem(
+              value: 'github',
+              child: Row(
+                children: [
+                  Icon(Icons.cloud_download_outlined, size: 20),
+                  SizedBox(width: 12),
+                  Text('GitHub 方案'),
+                ],
+              ),
+            ),
+            PopupMenuItem(
+              value: 'switch',
+              child: Row(
+                children: [
+                  Icon(Icons.swap_horiz, size: 20),
+                  SizedBox(width: 12),
+                  Text('换方案'),
+                ],
+              ),
+            ),
+            PopupMenuItem(
+              value: 'zip',
+              child: Row(
+                children: [
+                  Icon(Icons.archive_outlined, size: 20),
+                  SizedBox(width: 12),
+                  Text('从本地 zip 安装'),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ],
     );
   }
 
@@ -953,77 +1188,28 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  List<Widget> _mainActions() {
-    return [
-      OutlinedButton(
-        onPressed: _busy ? null : _check,
-        child: const Text('检查更新'),
-      ),
-      OutlinedButton(
-        onPressed: _busy ? null : () => _runUpdate(dryRun: true),
-        child: const Text('仅预演'),
-      ),
-      FilledButton(
-        onPressed: _busy ? null : () => _runUpdate(dryRun: false),
-        child: const Text('一键更新'),
-      ),
-    ];
-  }
-
-  Widget _buildHeader(ThemeData theme, bool compact) {
-    final title = Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          '芝士虎整 · 更新器',
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: theme.textTheme.titleLarge?.copyWith(
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-        if (!compact)
-          Text(
-            '虎码 Rime 整合包 · 多设备一键更新',
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
-            ),
-          ),
-      ],
-    );
-
-    if (compact) {
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Row(
-            children: [
-              _buildLogo(theme),
-              const SizedBox(width: 12),
-              Expanded(child: title),
-              IconButton(
-                tooltip: '设置',
-                onPressed: _busy ? null : _openSettings,
-                icon: const Icon(Icons.settings_outlined),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Wrap(
-            alignment: WrapAlignment.end,
-            spacing: 8,
-            runSpacing: 8,
-            children: _mainActions(),
-          ),
-        ],
-      );
-    }
-
+  Widget _buildHeader(ThemeData theme) {
     return Row(
       children: [
         _buildLogo(theme),
         const SizedBox(width: 12),
-        title,
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              '芝士虎整 · 更新器',
+              style: theme.textTheme.titleLarge?.copyWith(
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            Text(
+              '虎码 Rime 整合包 · 多设备一键更新',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ],
+        ),
         const Spacer(),
         TextButton(onPressed: _busy ? null : _openSettings, child: const Text('设置')),
         const SizedBox(width: 4),
@@ -1075,32 +1261,11 @@ class _HomePageState extends State<HomePage> {
     ];
   }
 
-  Widget _buildRemoteLine(ThemeData theme, bool compact) {
+  Widget _buildRemoteLine(ThemeData theme) {
     final text = _remoteVersion.isEmpty
         ? '远端最新：未检查'
         : '远端最新：v$_remoteVersion'
             '（${_remoteDelta ? '增量包' : '完整包'} · $_remoteAsset）';
-    if (compact) {
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Text(
-            text,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
-            ),
-          ),
-          Wrap(
-            alignment: WrapAlignment.end,
-            spacing: 4,
-            runSpacing: 0,
-            children: _remoteActions(),
-          ),
-        ],
-      );
-    }
     return Row(
       children: [
         Expanded(
@@ -1267,7 +1432,7 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  Widget _buildProgress(ThemeData theme) {
+  Widget _buildProgress(ThemeData theme, {bool compact = false}) {
     return Row(
       children: [
         Expanded(
@@ -1280,7 +1445,7 @@ class _HomePageState extends State<HomePage> {
         ),
         const SizedBox(width: 12),
         SizedBox(
-          width: 220,
+          width: compact ? 150 : 220,
           child: Text(
             _status,
             textAlign: TextAlign.right,

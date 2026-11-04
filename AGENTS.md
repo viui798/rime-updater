@@ -316,7 +316,8 @@ curl -s http://127.0.0.1:8766/api/state
    - 新增 `android_platform.dart` + `MainActivity.kt` MethodChannel：所有文件访问权限、
      系统文件选择（选中 zip 复制到 cache）；Manifest 增加 INTERNET / MANAGE_EXTERNAL_STORAGE、
      中文应用名、允许明文 HTTP（局域网 WebDAV）；
-   - 主界面与全部弹窗改为窄屏自适应；Android 上隐藏「添加目录」入口；
+   - 主界面窄屏改为可滚动单页：状态条 + 三个等宽主按钮 + 云同步/同步库/更多菜单，
+     设备、日志、备份卡片按内容高度排列，不再有拖动分隔条与大片空白；全部弹窗宽度自适应；
    - 用模拟器（API 35）验证：启动、授权、识别 Trime、检查更新 v0.3.23、预演 8 文件、
      正式更新 8 文件 + 快照 + 回滚记录；`app-release.apk` 52.8MB；
    - Actions 增加 android job，产出 `android-apk` artifact。测试增至 33 项（新增窄屏布局）。
