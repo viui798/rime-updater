@@ -8,12 +8,12 @@ class MainFlutterWindow: NSWindow {
 
     // 初始窗口大小：足够放下设备表、日志和备份区
     self.setContentSize(NSSize(width: 980, height: 760))
-    self.minSize = NSSize(width: 840, height: 620)
-    self.title = "芝士虎整 · 更新器"
+    self.minSize = NSSize(width: 360, height: 500)
     self.center()
 
     RegisterGeneratedPlugins(registry: flutterViewController)
 
     super.awakeFromNib()
+    self.title = "Rime 更新器"
   }
 }

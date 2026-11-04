@@ -1,42 +1,42 @@
 import 'package:flutter/material.dart';
 
-/// 设计 token，见仓库根目录 DESIGN.md（v2「冷霜 Rime」）。
+/// 设计 token，见仓库根目录 DESIGN.md（v3「静序」）。
 /// 改界面前先读 DESIGN.md，不要在这里之外硬编码颜色。
 class AppColors {
   const AppColors._();
 
   // Light
-  static const paper = Color(0xFFF3F5F8);
+  static const paper = Color(0xFFF6F6F9);
   static const surface = Color(0xFFFFFFFF);
-  static const sunken = Color(0xFFECF0F4);
-  static const ink = Color(0xFF0A0F15);
-  static const inkSecondary = Color(0xFF43505D);
-  static const inkMuted = Color(0xFF76838F);
-  static const hairline = Color(0xFFD9E0E7);
-  static const accent = Color(0xFF0E7490);
-  static const accentSoft = Color(0xFFD9F3F9);
+  static const sunken = Color(0xFFF0F0F5);
+  static const ink = Color(0xFF24252D);
+  static const inkSecondary = Color(0xFF60616F);
+  static const inkMuted = Color(0xFF70717F);
+  static const hairline = Color(0xFFE4E4EC);
+  static const accent = Color(0xFF5E6AD2);
+  static const accentSoft = Color(0xFFEEEFFD);
   static const success = Color(0xFF15803D);
   static const danger = Color(0xFFB42318);
 
   // Dark
-  static const paperDark = Color(0xFF080B0F);
-  static const surfaceDark = Color(0xFF0F141A);
-  static const sunkenDark = Color(0xFF0B1015);
-  static const inkDark = Color(0xFFECF2F7);
-  static const inkSecondaryDark = Color(0xFF94A3B0);
-  static const inkMutedDark = Color(0xFF5F6D7A);
-  static const hairlineDark = Color(0xFF202A33);
-  static const accentDark = Color(0xFF67E8F9);
-  static const accentSoftDark = Color(0xFF0F2A33);
+  static const paperDark = Color(0xFF111113);
+  static const surfaceDark = Color(0xFF19191D);
+  static const sunkenDark = Color(0xFF222228);
+  static const inkDark = Color(0xFFF1F1F4);
+  static const inkSecondaryDark = Color(0xFFAEAEBB);
+  static const inkMutedDark = Color(0xFF9292A3);
+  static const hairlineDark = Color(0xFF303038);
+  static const accentDark = Color(0xFFA5ADFF);
+  static const accentSoftDark = Color(0xFF2A2C48);
   static const successDark = Color(0xFF4ADE80);
   static const dangerDark = Color(0xFFFCA5A5);
 
   // Console（日志始终是深色）
-  static const consoleBg = Color(0xFF0B0F14);
-  static const consoleBgDark = Color(0xFF060A0E);
-  static const consoleText = Color(0xFFCBD5E1);
-  static const consoleMuted = Color(0xFF6B7B8C);
-  static const consoleAccent = Color(0xFF67E8F9);
+  static const consoleBg = Color(0xFF202129);
+  static const consoleBgDark = Color(0xFF15151B);
+  static const consoleText = Color(0xFFDDDDE7);
+  static const consoleMuted = Color(0xFFA4A5B7);
+  static const consoleAccent = Color(0xFFA5ADFF);
   static const consoleGreen = Color(0xFF4ADE80);
   static const consoleRed = Color(0xFFFCA5A5);
 }
@@ -59,7 +59,7 @@ ThemeData buildAppTheme(Brightness brightness) {
     brightness: brightness,
   ).copyWith(
     primary: accent,
-    onPrimary: dark ? const Color(0xFF04222B) : Colors.white,
+    onPrimary: dark ? const Color(0xFF20234A) : Colors.white,
     primaryContainer: accentSoft,
     onPrimaryContainer: accent,
     surface: surface,
@@ -96,9 +96,9 @@ ThemeData buildAppTheme(Brightness brightness) {
       color: ink,
     ),
     labelMedium: base.labelMedium?.copyWith(
-      fontSize: 10.5,
-      fontWeight: FontWeight.w600,
-      letterSpacing: 1.4,
+      fontSize: 9,
+      fontWeight: FontWeight.w500,
+      letterSpacing: 1.0,
       color: inkMuted,
     ),
     labelSmall: base.labelSmall?.copyWith(
@@ -121,7 +121,7 @@ ThemeData buildAppTheme(Brightness brightness) {
       margin: EdgeInsets.zero,
       clipBehavior: Clip.antiAlias,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(12),
         side: BorderSide(color: hairline),
       ),
     ),
@@ -129,12 +129,12 @@ ThemeData buildAppTheme(Brightness brightness) {
     filledButtonTheme: FilledButtonThemeData(
       style: FilledButton.styleFrom(
         backgroundColor: accent,
-        foregroundColor: dark ? const Color(0xFF04222B) : Colors.white,
+        foregroundColor: dark ? const Color(0xFF20234A) : Colors.white,
         minimumSize: const Size(0, 40),
         padding: const EdgeInsets.symmetric(horizontal: 22),
         elevation: 0,
         textStyle: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600),
-        shape: const StadiumBorder(),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
       ),
     ),
     outlinedButtonTheme: OutlinedButtonThemeData(
@@ -169,7 +169,7 @@ ThemeData buildAppTheme(Brightness brightness) {
         (states) => states.contains(WidgetState.selected) ? accent : null,
       ),
       checkColor: WidgetStateProperty.all(
-        dark ? const Color(0xFF04222B) : Colors.white,
+        dark ? const Color(0xFF20234A) : Colors.white,
       ),
       visualDensity: VisualDensity.compact,
     ),
@@ -200,7 +200,7 @@ ThemeData buildAppTheme(Brightness brightness) {
       shadowColor: Colors.black.withValues(alpha: .18),
       insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(12),
         side: BorderSide(color: hairline),
       ),
       titleTextStyle: TextStyle(
@@ -209,7 +209,8 @@ ThemeData buildAppTheme(Brightness brightness) {
         letterSpacing: -0.2,
         color: ink,
       ),
-      contentTextStyle: TextStyle(fontSize: 13, height: 1.5, color: inkSecondary),
+      contentTextStyle:
+          TextStyle(fontSize: 13, height: 1.5, color: inkSecondary),
     ),
     popupMenuTheme: PopupMenuThemeData(
       color: surface,

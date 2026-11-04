@@ -8,7 +8,7 @@
    （原开发机本地目录 `/Users/viui/Desktop/rime更新器`，方案仓库在 `/Users/viui/Desktop/芝士虎整`）
 2. 装 Flutter stable（原机器为 3.47.9 / Dart 3），然后 `cd app && flutter pub get`
    （项目只用纯 Dart 依赖 `archive` / `crypto` / `path`，不需要 CocoaPods）
-3. 跑验证：`dart analyze`、`flutter test`，当前应为 **33 项全部通过**
+3. 跑验证：`dart analyze`、`flutter test`，当前应为 **37 项全部通过**
 4. 构建：
    - macOS：`DEVELOPER_DIR=/Applications/Xcode-16.2.0.app/Contents/Developer flutter build macos --release`
    - Windows：在 Windows 机器上 `flutter build windows --release`，产物
@@ -51,7 +51,7 @@ RIME UPDATER」，界面标题、窗口标题、Android 应用名都不再出现
 
 - `app/`：**主客户端**，Flutter 原生桌面应用（Dart），一套代码覆盖 macOS / Windows，
   平台目录已生成（macos / windows / android / ios）；界面为 Material 3 原生窗口
-- `app/` 已验证：`dart analyze` 无问题，`flutter test` 33 项通过（过滤规则、增量包解包、
+- `app/` 已验证：`dart analyze` 无问题，`flutter test` 37 项通过（过滤规则、增量包解包、
   快照回滚、扁平/带目录 zip、版本推断、Rime 包识别、换方案备份与清理、手动目录与重命名、
   无变化跳过、云同步上传/删除/下载/在线编辑、同步库文件树、WebDAV 客户端、首页与弹窗渲染）
 - **启动不自动请求 GitHub**：打开 App 只有本地探测；点「检查更新」才发请求，检查结果
@@ -127,7 +127,7 @@ RIME UPDATER」，界面标题、窗口标题、Android 应用名都不再出现
 | `app/lib/core/deployer.dart` | 探测小狼毫 / 虎韵安装路径，按前端执行部署（异步，避免界面卡住） |
 | `app/lib/core/webdav_client.dart` | 极简 WebDAV 客户端：MKCOL / PUT / GET / DELETE + Basic Auth（路径逐段编码） |
 | `app/lib/core/sync_service.dart` | 云同步：同步库清单、文件树、上传/删除/下载、在线编辑 |
-| `app/lib/ui/app_theme.dart` | 设计 token 与全局 ThemeData（暖纸 + 虎琥珀，见根目录 `DESIGN.md`） |
+| `app/lib/ui/app_theme.dart` | 设计 token 与全局 ThemeData（v3 静序：雾白 + 淡紫，见根目录 `DESIGN.md`） |
 | `app/lib/ui/sync_dialog.dart` | 云同步弹窗：WebDAV 配置、同步库文件管理、上传 / 下载 |
 | `app/lib/ui/sync_library_dialog.dart` | 文件夹式同步库管理器：浏览、上传、在线编辑、删除 |
 | `app/lib/ui/local_zip_dialog.dart` / `remote_scheme_dialog.dart` / `switch_scheme_dialog.dart` / `settings_dialog.dart` | 四个入口弹窗 |
@@ -227,7 +227,7 @@ Flutter 客户端：
 ```bash
 cd app
 dart analyze                      # 静态分析
-flutter test                      # 过滤规则 / 解包 / 快照回滚 / 同步 / 界面，当前 33 项
+flutter test                      # 过滤规则 / 解包 / 快照回滚 / 同步 / 界面，当前 37 项
 dart run tool/verify.dart         # 真实下载（走缓存）+ 对首个目录预演，不需要打开界面
 
 # Xcode 未设为默认时：
@@ -407,6 +407,56 @@ curl -s http://127.0.0.1:8766/api/state
    `dart analyze` 无问题、`flutter test` 33 项通过；Windows release 构建成功，
    实机截图验证 1000×760 与 420×800 两套布局
 
+32. UI v3「静序」（2026-11-04）：按用户要求重新阅读 `VoltAgent/awesome-design-md`
+   的 Linear / Raycast 设计分析，落地雾白 + 淡紫主题、180px 桌面侧栏（方案管理 / 个人数据）、
+   版本卡片内集中更新 / 检查 / 预演、设备与备份 + 日志双栏；中文主标题、英文次级标记，
+   主按钮改 8px 圆角，去掉嵌套黑色日志内框。手机与低矮窗口主体整体滚动，设备状态 / 版本
+   换行，增加选中语义；同步等弹窗沿用全局主题。macOS 标题栏与应用名统一「Rime 更新器」，
+   最小窗口 360×500，支持手动缩窄预览。`DESIGN.md` 更新为 v3 并记录参考来源。
+   `dart analyze` 无问题，`flutter test` 37 项通过（新增 320×640 / 960×600 / 1000×540 /
+   1440×900、深色 + 1.2 倍文字、更多菜单与侧栏入口交互验证）；`tool/verify.dart` 真实下载
+   v0.3.24、SHA256 通过、仅预演 0 更新 / 7 跳过，未改 Rime 文件。macOS release 构建与
+   实际窗口 / 设置弹窗查看通过。首次构建缺失 FlutterFramework.swift，`flutter clean` +
+   `flutter pub get` 重建生成文件后恢复；不是业务代码问题。启动不联网、缓存、快照、部署与
+   用户数据过滤逻辑保持不变；尚未重新构建或实跑 Windows / Android。
+
+33. 手机端与 Android 安装包（2026-11-04）：窄屏主操作改为并排「检查更新 / 仅预演」+
+   下方整行「一键更新」，按钮最小高 48，繁忙时禁用「更多功能」，保持单页整体滚动。
+   `dart analyze` 无问题、`flutter test` 37 项通过，`tool/verify.dart` 只读预演通过。
+   `flutter build apk --release` 成功，通用 APK 52.8MB（arm64-v8a / armeabi-v7a / x86_64），
+   沿用项目现有 debug key 签名，APK v2 签名校验通过；Android 15 / API 35 模拟器覆盖安装、
+   冷启动成功，截图确认新主题、整行主按钮、同文目录识别与空日志正常，没有执行真实更新。
+   交付 `dist/RimeUpdater-v1.0.0-ui-v3-android.apk` 及 `.sha256`，截图同目录；全部被忽略不提交。
+   构建环境注意：macOS 使用 `LANG/LC_ALL/LC_CTYPE=en_US.UTF-8`，`JAVA_HOME` 见第 5 节，
+   `ANDROID_HOME` / `ANDROID_SDK_ROOT` 都指向 `/opt/homebrew/share/android-commandlinetools`，
+   `GRADLE_OPTS=-Dorg.gradle.daemon=false` 避免复用旧 locale daemon。不要同时运行没有相同
+   SDK 环境的 Flutter 命令，它可能把 `android/local.properties` 重写到仅有 adb 的 Homebrew
+   platform-tools 目录，引发误报缺 SDK / license；无需重新接受许可或重装 SDK。未在 Android
+   真机验证，此次未构建 iOS / Windows，也未重新打 macOS 包。
+
+34. 安装到本机（2026-11-04）：按用户要求将 v3 release APK 覆盖安装到 Android API 35
+   模拟器 `emulator-5554`，SHA256 验证成功，安装返回 Success，冷启动后确认应用为前台
+   resumed activity；未执行方案更新。macOS 从当前源码重新 release 构建成功，将应用安装到
+   `/Applications/RimeUpdater.app`，安装前旧应用保存到
+   `dist/install-backups/20261104-235652/RimeUpdater.app`，源 / 安装目录 28 个文件及符号链接
+   校验一致，`codesign --verify --deep --strict` 通过。实际从 Applications 启动，确认窗口
+   「Rime 更新器」、v3 侧栏与三个前端识别正常、启动日志为空。未改个人设置或 Rime 文件。
+
+35. iOS 排版重构（2026-11-04，脚本 1.3.0）：应用户「排版不清晰」反馈，把单页 List
+   （9 个 Section、20+ 按钮、约 15 屏）改成「主页 + 子页面」：主页保留状态卡
+   （目录 / 已装 / 远端 / 状态 / 下载进度条 / 更新说明摘要）、更新按钮（一键更新
+   prominent + 检查 / 预演、本地 zip / 部署）、目录行（每行「⋮」Menu：设为当前 / 重命名 /
+   安装到此目录 / 部署方式三选 / 移除，「＋ 添加目录」也收进 Menu）与「更多」区
+   NavigationLink；云同步、备份与回滚、换方案、设置、日志拆成 5 个子页面
+   （新文件 `ui/pages.tsx`，纯展示组件，状态与回调全部由主页 props 传入）；
+   云同步文件列表取消 40 条上限并按 `*.userdb` 合并成组（与桌面端一致）；
+   资产选择从「选用」按钮行改成 Picker（menu 样式）。编排逻辑基本不动：仅 `install`
+   拆成 `installTargets` + `installAll` / `installToDir`、`removeCloudFile` 改为批量
+   `removeCloudFiles`、三态循环的 `cycleMethod` 改为直接选定的 `setMethod`；配置类型与
+   读写迁到新文件 `utils/config.ts`。组件写法均经官方文档核对（NavigationLink
+   destination、Menu、Picker、ProgressView、buttonStyle）。esbuild bundle 检查通过；
+   **未真机验证**（若推入的子页面状态不随操作刷新，回退方案是把对应操作按钮挪回主页）。
+
 ## 7. 下一步（按优先级）
 
 1. **Windows 回滚实跑**：识别、更新与部署已在实机验证（两设备 0.3.1/0.3.2 → 0.3.23，
@@ -439,17 +489,27 @@ curl -s http://127.0.0.1:8766/api/state
 
 ## 9. 交接快照（每次会话结束更新这一节）
 
-> 2026-11-04 · `main`（Android 已推送 `76471cd`；Windows 实机改动 + iOS 脚本在此之后）
+> 2026-11-04 · `main` · 本次：Android 模拟器与 macOS 本机安装完成（本地改动，未提交 / 未推送）
 
 - **已完成并已推送**：Flutter 客户端（`app/`）、GitHub 方案 / 本地 zip / 换方案、
   手动目录与改名、可拖动布局、WebDAV 云同步、文件夹式同步库（上传 / 在线编辑 / 删除）、
   启动不联网与 10 分钟检查缓存、GitHub Actions 三平台构建、Android 端（权限、Trime 目录、
   文件选择、窄屏 UI、Actions android job）
-- **本会话新增（待推送）**：Windows 实机（小狼毫 / 虎韵分别识别、`Tigrime.Deployer.exe`
+- **本机安装**：最新版已覆盖安装到 Android 模拟器 `emulator-5554` 和
+  `/Applications/RimeUpdater.app`，两端启动确认成功；Mac 旧应用保存在
+  `dist/install-backups/20261104-235652/RimeUpdater.app`。设置与 Rime 个人数据保留。
+- **手机交付**：整行「一键更新」+ 并排检查 / 预演，37 项测试与静态分析通过；Android
+  release APK 构建、v2 签名校验、API 35 模拟器覆盖安装 / 冷启动 / 截图通过。安装包与 SHA256
+  在 `dist/RimeUpdater-v1.0.0-ui-v3-android.apk` / `.apk.sha256`，沿用项目测试签名；未真机验证。
+- **上一轮完成**：参考 awesome-design-md 的 Linear / Raycast 重做 Flutter UI v3（雾白淡紫、
+  桌面侧栏、更新卡、手机整体滚动）；设计规范与 macOS 原生标题同步更新。静态分析无问题，
+  37 项测试通过；macOS release 已构建并查看实际界面；真实下载校验与只读预演通过。
+- **既有工作记录**：Windows 实机（小狼毫 / 虎韵分别识别、`Tigrime.Deployer.exe`
   部署改异步、设备「⋮」删除 + `hidden_dirs`）；品牌与 UI v2「冷霜」（改名 Rime 更新器、
   新图标、`DESIGN.md`、桌面双栏 + 深色控制台 + TOOLS 工具条、手机单页）；
-  iOS Scripting 更新器（预演、本地 zip、备份回滚、换方案、WebDAV 云同步，脚本 1.2.0，
-  未真机验证）
+  iOS Scripting 更新器（预演、本地 zip、备份回滚、换方案、WebDAV 云同步，脚本 1.3.0
+  改「主页 + 子页面」排版：主页状态卡 / 更新 / 目录，云同步 / 备份 / 换方案 / 设置 /
+  日志拆子页面，见第 6 节第 35 条，未真机验证）
 - **已验证**：`dart analyze` 无问题；`flutter test` 33 项通过（Windows 上个别临时目录
   清理偶发 `errno 32`，重跑即过）；macOS 实跑（三前端识别、预演 8 文件）；Android 模拟器
   （API 35）检查 / 预演 / 正式更新 + 快照；`flutter build windows --release` 成功并安装到
