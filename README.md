@@ -1,11 +1,6 @@
 <p align="center">
-  <img src="app/macos/Runner/Assets.xcassets/AppIcon.appiconset/app_icon_1024.png" width="120" alt="Rime 更新器图标">
+  <img src="docs/assets/rime-updater-hero.svg" width="100%" alt="Rime 更新器：管理方案，让每台设备同步向前。展示桌面与手机端的 Rime 方案更新界面。">
 </p>
-
-<h1 align="center">Rime 更新器</h1>
-
-<p align="center"><b>管理方案，让每台设备同步向前。</b></p>
-<p align="center">检查版本、预演变更、更新与回滚，再把个人数据放进自己的同步库。<br>支持 macOS、Windows 与 Android，另提供 iPhone / iPad 的 Scripting 脚本。</p>
 
 <p align="center">
   <a href="https://github.com/viui798/rime-updater/releases"><img src="https://img.shields.io/github/v/release/viui798/rime-updater?style=flat-square&color=5E6AD2" alt="GitHub Release"></a>
@@ -17,18 +12,6 @@
 <p align="center">
   <a href="#download">下载安装</a> · <a href="#features">全部功能</a> · <a href="#android">Android 与 Shizuku</a> · <a href="#ios">iOS 脚本</a> · <a href="#faq">常见问题</a> · <a href="#build">源码构建</a>
 </p>
-
-<br>
-
-<h3 align="center">先看会改什么，再决定更新</h3>
-
-<p align="center">打开应用只做本地识别。勾选目录，检查版本，再用「仅预演」查看文件变化。<br>正式更新时优先使用增量包，保留个人词典与开关记忆；开启快照后可以回滚。</p>
-
-<p align="center">
-  <img src="docs/assets/desktop-update.png" width="100%" alt="macOS Flutter 客户端真实界面：更新卡、版本检查、预演、设备概览与明暗主题工作区">
-</p>
-
-<p align="center"><sub>macOS 客户端实机截图 · 桌面侧栏、版本操作与设备工作区</sub></p>
 
 <br>
 
@@ -50,23 +33,11 @@
 
 <p align="center">自动发现常见 Rime 目录，也能手动添加、命名、隐藏与重新识别。<br>Android 可通过 Shizuku 访问支持的 Android/data 目录，小狐狸等多方案容器按实际方案分别列出。</p>
 
-<p align="center">
-  <img src="docs/assets/android-devices.png" width="680" alt="Android 真机界面的 Rime 设备列表：中文输入法、中文输入法2、元书及公共目录">
-</p>
-
-<p align="center"><sub>Android build 3 真机截图 · 共享目录按实际方案列出</sub></p>
-
 <br>
 
 <h3 align="center">换方案，也带上自己的词典</h3>
 
 <p align="center">默认对接芝士虎整，也可以选择其他 GitHub Release 方案包或本地 ZIP。<br>换方案向导负责备份个人数据、清理旧运行文件、安装新方案，再补回个人数据。</p>
-
-<p align="center">
-  <img src="docs/assets/snapshot-rollback-flow.png" width="100%" alt="方案更新快照流程图：预演、记录文件变化及版本，再确认回滚">
-</p>
-
-<p align="center"><sub>更新快照与回滚流程示意 · 单文件超过 32 MiB 时仅记录，不复制备份</sub></p>
 
 <br>
 
@@ -74,23 +45,11 @@
 
 <p align="center">连接自己的 WebDAV，上传与下载个人词典、配置补丁和统计文件。<br>同步库支持目录浏览、单文件上传、云端文本编辑与删除，用户词典数据库按整组管理。</p>
 
-<p align="center">
-  <img src="docs/assets/webdav-sync-flow.png" width="100%" alt="WebDAV 云同步流程图：在本机 Rime 目录、个人 WebDAV 与另一台设备之间传输白名单文件">
-</p>
-
-<p align="center"><sub>WebDAV 同步流程示意 · 上传白名单文件，下载前先备份本机个人数据</sub></p>
-
 <br>
 
 <h3 align="center">电脑与手机，都有合适的布局</h3>
 
 <p align="center">Flutter 客户端采用「静序」界面：雾白与淡紫、跟随系统的明暗主题、深色运行日志。<br>桌面使用侧栏与双栏布局，手机使用单页滚动；iOS 脚本另有主页与功能子页面。</p>
-
-<p align="center">
-  <img src="docs/assets/android-update.png" width="440" alt="Android 真机界面：方案版本卡片、检查更新、仅预演与一键更新按钮">
-</p>
-
-<p align="center"><sub>Android build 3 真机截图 · 手机端主要更新操作</sub></p>
 
 <br>
 
