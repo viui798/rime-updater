@@ -55,12 +55,20 @@ jobs:
           choco install innosetup -y --no-progress
           $iscc = "${env:ProgramFiles(x86)}/Inno Setup 6/ISCC.exe"
           & $iscc windows/installer.iss
+      - name: Stage Windows artifacts
+        working-directory: app
+        shell: pwsh
+        run: |
+          # zip 与 exe 来源目录不同，直接上传会让 artifact 按公共祖先嵌套，
+          # Release 的 dist/* 只匹配顶层会漏掉——先归拢到一个平面目录
+          New-Item -ItemType Directory -Force -Path build\win-release | Out-Null
+          Copy-Item "build\*.zip" build\win-release\ -ErrorAction SilentlyContinue
+          Copy-Item "..\..\dist\*.exe" build\win-release\ -ErrorAction SilentlyContinue
+          Get-ChildItem build\win-release
       - uses: actions/upload-artifact@v4
         with:
           name: windows-zip
-          path: |
-            app/build/*.zip
-            dist/*.exe
+          path: app/build/win-release/*
 
   android:
     runs-on: ubuntu-latest
