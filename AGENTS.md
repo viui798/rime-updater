@@ -617,6 +617,40 @@ curl -s http://127.0.0.1:8766/api/state
    `Cobra deploy` / `sync` / `print`（本机实测，print 可探测用户目录权威路径），
    第 40 条「只能 killall」已过时，deployer.dart 应改调 CLI。
 
+47. Android SAF 接入与界面改版（2026-11-05）：本轮最大的一次改动，合并为一个功能提交
+   （`a9e7753`）+ 一个原生修复提交（`57f00f9`）+ iOS 脚本（`95f537d`）。
+   - **SAF（元书）**：元书数据在应用私有目录，只有 `HamsterDocumentsProvider`（SAF）能访问。
+     新增 `saf_client.dart`（选目录、持久授权、递归遍历、读写删）与 `saf_installer.dart`
+     （沿用 `shouldCopy` 过滤 + 快照 + 版本标记）。`Profile` 增加 `safUri`，`identity` 用 URI
+     代替路径，设备选择与去重都按它走。方案：路线 A——SAF 目录支持「添加 / 检查 / 预演 / 更新」，
+     换方案、云同步、回滚暂不支持，设备菜单里相应隐藏「清空 Rime 目录」。
+   - **踩过的坑（都已修，测试覆盖）**：① `pickDirectory` 必须显式
+     `persistablePermission: true`，否则重启后 Permission Denial；② 元书拒绝点开头的文件/目录
+     （`.cheese-tiger-backup` 创建失败，`.cheese-tiger-version` 被 provider 改名成
+     `N.cheese-tiger-version`），SAF 侧改用 `cheese-tiger-version.txt`，并自动清理数字前缀残留；
+     ③ SAF 预演原本会真实写盘（缺 `dryRun`）；④ SAF 路径缺增量基座校验，会做出「版本号前进、
+     文件底子没跟上」的坏安装；⑤ 387MB 模型整份读入导致 OOM，改成流式分块写
+     （`ArchiveFile.getContent()` + `readInto` + `startWriteStream/writeChunk`），
+     单文件上限从 64MB 硬跳过改为流式，无大小限制；⑥ `settings_dialog` 手工重建 `Settings`
+     漏了新字段，填 Token 会把 SAF 目录清空；⑦ 卡片列表 `applyCustomNames` 返回同一 list
+     导致 `clear()+addAll()` 把设备清空（别名 bug）。
+   - **缓存**：新增 `cache_manager.dart`，更新成功后只保留当前版本（删旧 zip/sha256），
+     设置页显示占用并可手动清理；清理只动本工具产出的文件，绝不碰用户其他内容。
+     Android 默认缓存从可被 MIUI 回收的 `cache/` 迁到 `files/cheese-tiger/cache`，启动时自动迁移旧文件；
+     全部设备已最新时不再下载任何包。
+   - **健壮性**：已是最新的设备直接跳过（不再重复遍历与部署）；单设备失败不再中断整批；
+     Shizuku `svc.read()` 返回空时跳过该文件；`files()` 跳过 `sync/`。
+   - **界面**：4 个页面（更新器 / 同步 / 更多 / 设置）——窄屏用深色改浅底、跟随主题的悬浮底栏
+     （选中胶囊横向滑动，`AnimatedAlign` + 宽度 1/槽位），切页是**整屏推屏**且旧页立即退场
+     （用户明确不要残影）；宽屏保留侧栏但改为切页。云同步与同步库合并为「同步」页的两个分段，
+     侧栏「同步库」直接落到对应子页；设置独立成页；GitHub 方案 / 本地 zip / 换方案归入「更多」；
+     备份与回滚从主页移入「更多」（桌面端原来设备区被挤）。三个原弹窗加了 `embedded` 模式，
+     弹窗与页面共用同一份逻辑。
+   - **验证**：`dart analyze` 无问题；`flutter test` 74 项通过（新增 SAF、缓存、导航、切页、
+     重命名、Shizuku 文案等）；Android 真机 versionCode 36 与 macOS 实机均确认布局与流程。
+     **仍未验证**：SAF 真实写入（预演是只读）、元书从 v0.3.2 升到最新、Windows 构建。
+   - **iOS**：脚本 1.3.1 补增量基座校验与单目录失败隔离，仍未真机验证。
+
 ## 7. 下一步（按优先级）
 
 1. **Windows 回滚实跑**：识别、更新与部署已在实机验证（两设备 0.3.1/0.3.2 → 0.3.23，
@@ -649,15 +683,22 @@ curl -s http://127.0.0.1:8766/api/state
 
 ## 9. 交接快照（每次会话结束更新这一节）
 
-> 2026-11-05 · `main` · 本次：按 dsh-Go 首图构图重做 README 单张品牌横幅
+> 2026-11-05 · `main` · 本次：安卓 SAF（元书）接入、缓存管理与四页界面改版
 
-- **本次文档交付**：README 只展示一张 `docs/assets/rime-updater-hero.svg` 品牌横幅，构图参考
-  dsh-Go：左侧品牌与定位，右侧桌面及手机产品界面模型。原截图与功能流程图已从 README 移除，
-  旧的独立 PNG 展示资产删除；功能细节继续由正文说明。
-- **恢复记录**：截图过程中误触发小企鹅和元书的真实方案更新，已使用 `20261105-004538` 快照恢复旧文件
-  和 `0.3.23` 版本标记。快照仍保留在用户应用数据目录，勿清理。后续没有继续操作真实更新器。
-- **验证状态**：Chrome 2560×1280 SVG 预览、SVG XML、README 唯一产品图 / 本地链接检查及
-  `git diff --check` 均通过。本次不改客户端，不重新构建或运行应用测试。现有 `.zcode/` 与其他未提交工作均需保留。
+- **当前状态**：`main` 有 4 个新提交（`57f00f9` 原生修复 / `a9e7753` 主体功能 /
+  `95f537d` iOS 脚本 / `180a6c2` 忽略与工具）。`dart analyze` 干净，`flutter test` 74 项全过。
+- **已安装**：Android 真机 versionCode 36；macOS `/Applications/RimeUpdater.app`（本轮重装多次）。
+  产物在 `dist/RimeUpdater-v0.10.0-build36-*`（DMG + 三架构 APK + sha256，均被 git 忽略）。
+- **元书现状**：SAF 目录已加、授权可持久、预演通过（172 个文件全部「未变化」，说明文件内容
+  早已是 v0.3.26，但版本标记一直没写进去）。点一次「一键更新」才会写入
+  `cheese-tiger-version.txt`，届时显示「已最新」。**真实写入尚未验证**。
+- **不要踩的坑**：SAF 目录不能用点开头的文件名；`pickDirectory` 必须传
+  `persistablePermission: true`；预演必须传 `dryRun`；改 `Settings` 字段时记得同步
+  `settings_dialog._collect()`。
+- **未完成**：Windows 构建（需 Windows 机器）；iOS 排版要按安卓的四页结构重构；
+  SAF 真实写入与元书升级实测；AGENTS 第 5 节测试数量仍是旧值。
+- **本机数据**：设置 / 设备 ID / 备份都在第 0 节列出的应用支持目录，不在仓库里。
+- **`.zcode/` 仍未跟踪，按要求保留，不要删除。**
 
 - **最新交付 build 3**：已覆盖安装 ARM64 18.88MB（versionCode 2003），真机识别 11 个
   实际方案目录。新增中文输入法、中文输入法2 / 元书的共用 schemas、小狐狸的三个方案；
