@@ -196,6 +196,33 @@ function MainView() {
     return dir.path
   }
 
+  /**
+   * 从磁盘读回各目录的已装版本。
+   *
+   * 之前版本只在「本脚本安装成功」后写内存配置，从没读过盘上的标记文件，
+   * 所以用户自己放进去（或别的端装的）目录一律显示「未知 / 不显示版本」。
+   */
+  async function refreshVersions() {
+    if (config.dirs.length === 0) return
+    const next = { ...config.installedVersions }
+    let changed = false
+    for (const dir of config.dirs) {
+      try {
+        const target = await resolveTarget(dir)
+        if (!target) continue
+        const version = await readInstalledVersion(target)
+        if (!version) continue
+        if (next[dir.id] !== version) {
+          next[dir.id] = version
+          changed = true
+        }
+      } catch {
+        // 单个目录读失败不影响其它目录
+      }
+    }
+    if (changed) updateConfig({ ...config, installedVersions: next })
+  }
+
   async function refreshFiles() {
     const dir = activeDir
     if (!dir) {
@@ -1005,6 +1032,7 @@ function MainView() {
   }
 
   useEffect(() => {
+    void refreshVersions()
     void refreshFiles()
     void refreshBackups()
     void refreshCloud()
@@ -1115,7 +1143,7 @@ function MainView() {
                   {`${methodLabel(dir.inputMethod)}${
                     config.installedVersions[dir.id]
                       ? ` · 已装 v${config.installedVersions[dir.id]}`
-                      : ""
+                      : " · 版本未知"
                   }`}
                 </Text>
               </VStack>

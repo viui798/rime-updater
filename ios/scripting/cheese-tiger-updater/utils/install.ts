@@ -21,6 +21,49 @@ import type { ReleaseAsset } from "./github"
 
 const MAX_BACKUP_BYTES = 32 * 1024 * 1024
 const BACKUP_DIR = ".cheese-tiger-backup"
+
+/// 已装版本标记。桌面端写 `.cheese-tiger-version`，SAF 写 `cheese-tiger-version.txt`，
+/// 两种都读，兼容用户从别的端同步过来的目录。
+const VERSION_MARKERS = [".cheese-tiger-version", "cheese-tiger-version.txt"]
+
+/** 读取目录的已装版本；读不到返回空字符串。 */
+export async function readInstalledVersion(dir: string): Promise<string> {
+  for (const marker of VERSION_MARKERS) {
+    const file = Path.join(dir, marker)
+    try {
+      if (!(await exists(file))) continue
+      const text = await FM().readAsString(file)
+      const value = String(text ?? "").trim().replace(/^v/i, "")
+      if (value) return value
+    } catch {
+      // 个别 provider 读取受限，换下一个标记
+    }
+  }
+  // 没有标记时退一步：从最近一次快照的 manifest 里取版本号。
+  try {
+    const backups = await listBackups(dir)
+    const latest = backups[0]
+    if (latest?.version) return String(latest.version).trim().replace(/^v/i, "")
+  } catch {
+    // 没有备份目录或读取失败都算没有
+  }
+  return ""
+}
+
+/** 写入版本标记（失败不影响安装结果）。 */
+export async function writeInstalledVersion(dir: string, version: string): Promise<void> {
+  const value = String(version ?? "").trim().replace(/^v/i, "")
+  if (!value) return
+  try {
+    await FM().writeAsString(Path.join(dir, VERSION_MARKERS[0]), value)
+  } catch {
+    try {
+      await FM().writeAsString(Path.join(dir, VERSION_MARKERS[1]), value)
+    } catch {
+      // 两个都写不了就放弃，不影响本次安装
+    }
+  }
+}
 const MANIFEST_NAME = "manifest.json"
 
 type SnapshotManifest = {
@@ -355,6 +398,9 @@ export async function installZip(
     })
     await writeManifest(backupRoot, manifest)
   })
+
+  // 记到目录里，下次打开才能显示「已装 vX」，也便于增量包做基座校验。
+  await writeInstalledVersion(dir, version)
 
   return { copied, skipped, backupRoot, version }
 }
