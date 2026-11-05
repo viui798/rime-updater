@@ -81,7 +81,10 @@ class ShizukuBridge(private val activity: Activity) {
                                 val output = File(dest, rel)
                                 require(output.canonicalPath.startsWith(dest.canonicalPath + "/"))
                                 output.parentFile!!.mkdirs()
-                                ParcelFileDescriptor.AutoCloseInputStream(svc.read(root, rel)).use { input ->
+                                // 个别文件可能无权限或刚好被删，read() 会返回 null；
+                                // 跳过而不是让整个暂存失败。
+                                val pfd = svc.read(root, rel) ?: continue
+                                ParcelFileDescriptor.AutoCloseInputStream(pfd).use { input ->
                                     output.outputStream().use { input.copyTo(it) }
                                 }
                             }
