@@ -47,7 +47,7 @@ Android 的设置与缓存都在应用私有目录（`files/cheese-tiger/`），
 ## 2. 当前状态（2026-11-05）
 
 - `app/` 是主客户端，一套 Flutter 代码覆盖 macOS / Windows / Android；`ios/scripting/` 是独立脚本。
-- 版本 `0.10.0+38`（Android versionCode 2038 = 2000 + build number）。
+- 版本 `0.10.0+39`（Android versionCode 2039 = 2000 + build number）。
 - **软件自更新**：设置页有「软件更新」卡片，查 `viui798/rime-updater` 的 latest Release，
   按平台挑包（macOS→dmg、Windows→Setup.exe、Android→按 ABI 的 apk）并交给系统安装器。
   只做检查/下载/打开安装器，**不静默替换自身**。iOS 脚本同样有「检查脚本更新」。
@@ -114,10 +114,14 @@ Android 的设置与缓存都在应用私有目录（`files/cheese-tiger/`），
     **SAF 无法触发输入法部署**，写完必须由用户在元书内重新加载。
 14. **已是最新的设备直接跳过**：不再重复遍历文件与重复部署（重启输入法很扰民）。
 15. **单设备失败不中断整批**：记录后继续；状态栏汇总部分失败。
-16. **自更新只「下载 + 打开安装器」，不静默替换自身**：macOS 的 App 包在运行中被占用、
+16. **自更新查版本走网页端，不消耗 GitHub API 配额**：匿名 API 每小时仅 60 次，
+    共用出口 IP（家宽 / VPN）很容易被限流。改为 `releases/latest` 302 拿 tag +
+    `releases/expanded_assets/<tag>` 解析资产名，网页解析失败才回退 API，
+    结果缓存 10 分钟。API 限流时给出中文提示并建议填 Token。
+17. **自更新只「下载 + 打开安装器」，不静默替换自身**：macOS 的 App 包在运行中被占用、
     Windows 的 exe 被锁，静默替换必然失败或留下半成品。Android 走 FileProvider + ACTION_VIEW
     交给系统安装器（需要 `REQUEST_INSTALL_PACKAGES`）。
-17. **版本号两处必须一致**：`lib/core/app_version.dart` 与 pubspec 的 `version:`，
+18. **版本号两处必须一致**：`lib/core/app_version.dart` 与 pubspec 的 `version:`，
     `test/app_update_test.dart` 会读 pubspec 校验，改版本时两处一起改。
 
 ## 5. 验证清单（改代码后必跑）

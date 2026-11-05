@@ -88,6 +88,39 @@ void main() {
     });
   });
 
+  group('v0.10 真实资产名也能正确挑选', () {
+    // 这些是线上 Release 的实际文件名（GitHub 网页端解析出来的也是这些）
+    const real = [
+      'app-arm64-v8a-release.apk',
+      'app-armeabi-v7a-release.apk',
+      'app-release.apk',
+      'app-x86_64-release.apk',
+      'RimeUpdater-v0.10-macos.dmg',
+      'RimeUpdater-v0.10-Setup.exe',
+      'RimeUpdater-v0.10-windows.zip',
+    ];
+
+    test('macOS / Windows', () {
+      final release = _release(real, version: '0.11.0');
+      expect(release.pickAsset(platform: 'macos')?.name,
+          'RimeUpdater-v0.10-macos.dmg');
+      expect(release.pickAsset(platform: 'windows')?.name,
+          'RimeUpdater-v0.10-Setup.exe');
+    });
+
+    test('Android 三个 ABI 各自匹配，未知 ABI 退回通用包', () {
+      final release = _release(real, version: '0.11.0');
+      expect(release.pickAsset(platform: 'android', abis: ['arm64-v8a'])?.name,
+          'app-arm64-v8a-release.apk');
+      expect(release.pickAsset(platform: 'android', abis: ['armeabi-v7a'])?.name,
+          'app-armeabi-v7a-release.apk');
+      expect(release.pickAsset(platform: 'android', abis: ['x86_64'])?.name,
+          'app-x86_64-release.apk');
+      expect(release.pickAsset(platform: 'android', abis: ['riscv64'])?.name,
+          'app-release.apk');
+    });
+  });
+
   group('版本号与 pubspec 一致', () {
     test('appVersion / appBuild 不能和 pubspec 漂移', () {
       final pubspec = File('pubspec.yaml');

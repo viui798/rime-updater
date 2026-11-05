@@ -1,7 +1,7 @@
 name: rime_updater
 description: 芝士虎整 Rime 整合包的多设备一键更新工具
 publish_to: none
-version: 0.10.0+38
+version: 0.10.0+39
 
 environment:
   sdk: ^3.5.0

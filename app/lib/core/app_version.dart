@@ -5,7 +5,7 @@
 const String appVersion = '0.10.0';
 
 /// 构建号，对应 pubspec 的 `+N`。
-const int appBuild = 38;
+const int appBuild = 39;
 
 /// Android versionCode = [appBuild] + 2000（详见构建脚本）。
 const int androidVersionCodeBase = 2000;

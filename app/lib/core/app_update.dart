@@ -13,6 +13,13 @@ const String appUpdateRepo = 'viui798/rime-updater';
 const MethodChannel _platformChannel =
     MethodChannel('com.viui798.rime_updater/platform');
 
+class _CachedRelease {
+  _CachedRelease(this.release, this.at);
+
+  final AppRelease release;
+  final DateTime at;
+}
+
 extension _FirstOrNull<E> on Iterable<E> {
   E? get firstOrNull => isEmpty ? null : first;
 }
@@ -171,7 +178,84 @@ class AppUpdateService {
     }
   }
 
+  /// 读取最新 Release。
+  ///
+  /// 优先走 GitHub 的网页端（`/releases/latest` 302 + `expanded_assets` 片段），
+  /// **不消耗 API 配额**——匿名 API 每小时只有 60 次，共用出口 IP 时很容易被限流，
+  /// 而更新器自身的更新检查不该卡在这里。网页端解析失败时才回退到 API。
   Future<AppRelease> fetchLatest() async {
+    final cached = _cached;
+    if (cached != null &&
+        DateTime.now().difference(cached.at) < const Duration(minutes: 10)) {
+      return cached.release;
+    }
+
+    AppRelease? release;
+    try {
+      release = await _fetchViaWeb(tag: null);
+    } catch (_) {
+      release = null;
+    }
+    release ??= await _fetchViaApi();
+    _cached = _CachedRelease(release, DateTime.now());
+    return release;
+  }
+
+  _CachedRelease? _cached;
+
+  /// 走网页端：先取 302 拿到最新 tag，再解析该 tag 的资产片段。
+  Future<AppRelease?> _fetchViaWeb({String? tag}) async {
+    var resolvedTag = tag;
+    if (resolvedTag == null || resolvedTag.isEmpty) {
+      final request = await client.getUrl(
+        Uri.https('github.com', '/$appUpdateRepo/releases/latest'),
+      );
+      request.followRedirects = false;
+      request.headers.set('User-Agent', 'RimeUpdater/$appVersion');
+      final response = await request.close();
+      await response.drain<void>();
+      final location = response.headers.value('location') ?? '';
+      if (location.isEmpty) return null;
+      resolvedTag = location.split('/').last;
+      if (resolvedTag.isEmpty) return null;
+    }
+
+    final pageRequest = await client.getUrl(
+      Uri.https('github.com', '/$appUpdateRepo/releases/expanded_assets/$resolvedTag'),
+    );
+    pageRequest.headers.set('User-Agent', 'RimeUpdater/$appVersion');
+    final pageResponse = await pageRequest.close();
+    if (pageResponse.statusCode != 200) return null;
+    final html = await pageResponse.transform(utf8.decoder).join();
+
+    final pattern = RegExp(
+      r'/releases/download/([^"/]+)/([^"?#]+)',
+      caseSensitive: false,
+    );
+    final seen = <String>{};
+    final assets = <AppAsset>[];
+    for (final match in pattern.allMatches(html)) {
+      final name = Uri.decodeComponent(match.group(2)!);
+      if (!seen.add(name)) continue;
+      assets.add(AppAsset(
+        name: name,
+        url: 'https://github.com/$appUpdateRepo/releases/download/'
+            '${match.group(1)}/${match.group(2)}',
+        size: 0,
+      ));
+    }
+    if (assets.isEmpty) return null;
+
+    return AppRelease(
+      version: resolvedTag.replaceFirst(RegExp(r'^v'), ''),
+      tag: resolvedTag,
+      pageUrl: 'https://github.com/$appUpdateRepo/releases/tag/$resolvedTag',
+      notes: '',
+      assets: assets,
+    );
+  }
+
+  Future<AppRelease> _fetchViaApi() async {
     final uri = Uri.https('api.github.com', '/repos/$appUpdateRepo/releases/latest');
     final request = await client.getUrl(uri);
     request.headers
@@ -184,13 +268,20 @@ class AppUpdateService {
     final response = await request.close();
     final body = await response.transform(utf8.decoder).join();
     if (response.statusCode != 200) {
-      String detail = 'HTTP ${response.statusCode}';
+      var detail = 'HTTP ${response.statusCode}';
       try {
         final json = jsonDecode(body);
         if (json is Map && json['message'] != null) {
           detail = '${json['message']}';
         }
       } catch (_) {}
+      if (detail.contains('rate limit')) {
+        throw HttpException(
+          'GitHub 接口限流了（匿名每小时 60 次）。稍后再试，'
+          '或在「高级设置」里填一个 GitHub Token。',
+          uri: uri,
+        );
+      }
       throw HttpException('读取更新信息失败（$detail）', uri: uri);
     }
 
@@ -222,7 +313,9 @@ class AppUpdateService {
       await dir.create(recursive: true);
     }
     final target = File(p.join(dir.path, 'app-update', asset.name));
-    if (await target.exists() && await target.length() == asset.size) {
+    if (asset.size > 0 &&
+        await target.exists() &&
+        await target.length() == asset.size) {
       onProgress?.call(asset.size, asset.size);
       return target;
     }
