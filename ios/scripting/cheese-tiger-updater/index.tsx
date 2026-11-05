@@ -10,6 +10,7 @@ import {
   ProgressView,
   Section,
   Spacer,
+  TabView,
   Text,
   VStack,
   useEffect,
@@ -905,10 +906,10 @@ function MainView() {
     if (config.autoCheckOnLaunch) void check()
   }, [])
 
-  return (
+  const updaterTab = (
     <NavigationStack>
       <List
-        navigationTitle="芝士虎整"
+        navigationTitle="Rime 更新器"
         navigationBarTitleDisplayMode="inline"
         listStyle="insetGroup"
         toolbar={{
@@ -1064,35 +1065,38 @@ function MainView() {
             </Text>
           ) : null}
         </Section>
+      </List>
+    </NavigationStack>
+  )
 
-        <Section header={<Text>更多</Text>}>
-          <NavigationLink
-            destination={
-              <CloudSyncPage
-                busy={busy}
-                hasDir={!!activeDir}
-                config={config}
-                password={password}
-                cloudFiles={cloudFiles}
-                cloudDevices={cloudDevices}
-                onConfigChange={setConfig}
-                onPasswordChange={setPassword}
-                onSave={saveSyncConfig}
-                onUpload={uploadCloud}
-                onDownload={downloadCloud}
-                onRefresh={refreshCloudList}
-                onDeleteFiles={removeCloudFiles}
-              />
-            }
-          >
-            <HStack>
-              <Text>云同步</Text>
-              <Spacer />
-              <Text font="caption" foregroundStyle="secondaryLabel">
-                {`${cloudFiles.length} 个文件`}
-              </Text>
-            </HStack>
-          </NavigationLink>
+  const syncTab = (
+    <NavigationStack>
+      <CloudSyncPage
+        busy={busy}
+        hasDir={!!activeDir}
+        config={config}
+        password={password}
+        cloudFiles={cloudFiles}
+        cloudDevices={cloudDevices}
+        onConfigChange={setConfig}
+        onPasswordChange={setPassword}
+        onSave={saveSyncConfig}
+        onUpload={uploadCloud}
+        onDownload={downloadCloud}
+        onRefresh={refreshCloudList}
+        onDeleteFiles={removeCloudFiles}
+      />
+    </NavigationStack>
+  )
+
+  const moreTab = (
+    <NavigationStack>
+      <List
+        navigationTitle="更多"
+        navigationBarTitleDisplayMode="inline"
+        listStyle="insetGroup"
+      >
+        <Section header={<Text>数据与方案</Text>}>
           <NavigationLink
             destination={
               <BackupsPage
@@ -1136,28 +1140,7 @@ function MainView() {
               </Text>
             </HStack>
           </NavigationLink>
-          <NavigationLink
-            destination={
-              <SettingsPage
-                busy={busy}
-                config={config}
-                remote={remote}
-                onUpdate={updateConfig}
-                onEditToken={editToken}
-                onEditRepo={editRepo}
-                onResetRepo={resetRepo}
-                onPickAsset={pickAsset}
-              />
-            }
-          >
-            <HStack>
-              <Text>设置</Text>
-              <Spacer />
-              <Text font="caption" foregroundStyle="secondaryLabel">
-                {config.repo}
-              </Text>
-            </HStack>
-          </NavigationLink>
+          
           <NavigationLink
             destination={
               <LogPage
@@ -1181,8 +1164,92 @@ function MainView() {
             </HStack>
           </NavigationLink>
         </Section>
+        <Section footer={<Text>同步与设置是独立页面，从底部导航进入。</Text>}>
+          <HStack>
+            <Text>当前目录</Text>
+            <Spacer />
+            <Text font="caption" foregroundStyle="secondaryLabel">
+              {activeDir?.name ?? "未选择"}
+            </Text>
+          </HStack>
+          <HStack>
+            <Text>方案仓库</Text>
+            <Spacer />
+            <Text font="caption" foregroundStyle="secondaryLabel">
+              {config.repo}
+            </Text>
+          </HStack>
+        </Section>
       </List>
     </NavigationStack>
+  )
+
+  const settingsTab = (
+    <NavigationStack>
+      <SettingsPage
+        busy={busy}
+        config={config}
+        remote={remote}
+        onUpdate={updateConfig}
+        onEditToken={editToken}
+        onEditRepo={editRepo}
+        onResetRepo={resetRepo}
+        onPickAsset={pickAsset}
+      />
+    </NavigationStack>
+  )
+
+  return (
+    <TabView>
+      <VStack
+        tabItem={
+          <>
+            <Image systemName="bolt.fill" />
+            <Text>更新器</Text>
+          </>
+        }
+        tag={1}
+        frame={{ maxWidth: "infinity", maxHeight: "infinity" }}
+      >
+        {updaterTab}
+      </VStack>
+      <VStack
+        tabItem={
+          <>
+            <Image systemName="cloud" />
+            <Text>同步</Text>
+          </>
+        }
+        tag={2}
+        frame={{ maxWidth: "infinity", maxHeight: "infinity" }}
+      >
+        {syncTab}
+      </VStack>
+      <VStack
+        tabItem={
+          <>
+            <Image systemName="square.grid.2x2" />
+            <Text>更多</Text>
+          </>
+        }
+        tag={3}
+        frame={{ maxWidth: "infinity", maxHeight: "infinity" }}
+      >
+        {moreTab}
+      </VStack>
+      <VStack
+        tabItem={
+          <>
+            <Image systemName="gearshape" />
+            <Text>设置</Text>
+          </>
+        }
+        tag={4}
+        frame={{ maxWidth: "infinity", maxHeight: "infinity" }}
+      >
+        {settingsTab}
+      </VStack>
+    </TabView>
   )
 }
 
