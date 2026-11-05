@@ -1,9 +1,23 @@
 class Profile {
-  const Profile({required this.label, required this.path, required this.kind});
+  const Profile({
+    required this.label,
+    required this.path,
+    required this.kind,
+    this.safUri,
+  });
 
   final String label;
   final String path;
   final String kind;
+
+  /// 通过 Android SAF 访问时的目录 URI（例如元书暴露的 RimeUserData）。
+  /// 非空时，所有文件操作都应改走 SAF，而不是 [path]。
+  final String? safUri;
+
+  bool get isSaf => safUri != null && safUri!.isNotEmpty;
+
+  /// 稳定的身份标识：SAF 目录用 URI，其余用文件系统路径。
+  String get identity => isSaf ? 'saf:$safUri' : path;
 }
 
 class Asset {
@@ -67,6 +81,7 @@ class Settings {
     this.customDirs = const [],
     this.customNames = const {},
     this.hiddenDirs = const [],
+    this.safDirs = const [],
     this.syncUrl = '',
     this.syncUser = '',
     this.syncPassword = '',
@@ -83,6 +98,9 @@ class Settings {
   final List<String> customDirs;
   final Map<String, String> customNames;
   final List<String> hiddenDirs;
+
+  /// SAF 目录：每项是 {"uri": ..., "label": ...}
+  final List<Map<String, dynamic>> safDirs;
   final String syncUrl;
   final String syncUser;
   final String syncPassword;
@@ -99,6 +117,7 @@ class Settings {
     List<String>? customDirs,
     Map<String, String>? customNames,
     List<String>? hiddenDirs,
+    List<Map<String, dynamic>>? safDirs,
     String? syncUrl,
     String? syncUser,
     String? syncPassword,
@@ -115,6 +134,7 @@ class Settings {
       customDirs: customDirs ?? this.customDirs,
       customNames: customNames ?? this.customNames,
       hiddenDirs: hiddenDirs ?? this.hiddenDirs,
+      safDirs: safDirs ?? this.safDirs,
       syncUrl: syncUrl ?? this.syncUrl,
       syncUser: syncUser ?? this.syncUser,
       syncPassword: syncPassword ?? this.syncPassword,
@@ -136,6 +156,10 @@ class Settings {
               ?.map((key, value) => MapEntry(key.toString(), value.toString())) ??
           const {},
       hiddenDirs: (json['hidden_dirs'] as List? ?? const []).cast<String>(),
+      safDirs: (json['saf_dirs'] as List? ?? const [])
+          .whereType<Map>()
+          .map((item) => Map<String, dynamic>.from(item))
+          .toList(),
       syncUrl: json['sync_url'] as String? ?? '',
       syncUser: json['sync_user'] as String? ?? '',
       syncPassword: json['sync_password'] as String? ?? '',
@@ -155,6 +179,7 @@ class Settings {
       'custom_dirs': customDirs,
       'custom_names': customNames,
       'hidden_dirs': hiddenDirs,
+      'saf_dirs': safDirs,
       'sync_url': syncUrl,
       'sync_user': syncUser,
       'sync_password': syncPassword,

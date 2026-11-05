@@ -1,13 +1,25 @@
 import 'package:flutter/material.dart';
 
+import '../core/cache_manager.dart';
 import '../core/settings_store.dart';
 import '../models.dart';
 import 'dialog_size.dart';
 
 class SettingsDialog extends StatefulWidget {
-  const SettingsDialog({super.key, required this.settings});
+  const SettingsDialog({
+    super.key,
+    required this.settings,
+    this.embedded = false,
+    this.onSaved,
+  });
 
   final Settings settings;
+
+  /// 作为页面内容渲染时不再包 AlertDialog，由调用方提供滚动与保存位置。
+  final bool embedded;
+
+  /// 内嵌模式下的保存回调（弹窗模式走 Navigator.pop 返回结果）。
+  final ValueChanged<Settings>? onSaved;
 
   @override
   State<SettingsDialog> createState() => _SettingsDialogState();
@@ -27,6 +39,42 @@ class _SettingsDialogState extends State<SettingsDialog> {
   late bool _restart = widget.settings.restart;
   late bool _snapshot = widget.settings.snapshot;
 
+  CacheSummary? _cache;
+  String _cacheNote = '';
+
+  /// 清理时以输入框当前填写的目录为准，留空则用平台默认位置。
+  String get _effectiveCacheDir {
+    final custom = _cacheDir.text.trim();
+    return custom.isNotEmpty ? custom : defaultCacheDir;
+  }
+
+  void _refreshCache() {
+    final summary = cacheSummary(_effectiveCacheDir);
+    if (!mounted) return;
+    setState(() {
+      _cache = summary;
+      _cacheNote = '';
+    });
+  }
+
+  void _clearCache() {
+    final freed = clearCache(_effectiveCacheDir);
+    final summary = cacheSummary(_effectiveCacheDir);
+    if (!mounted) return;
+    setState(() {
+      _cache = summary;
+      _cacheNote = freed == 0
+          ? '缓存已经是空的'
+          : '已清理 ${(freed / 1024 / 1024).toStringAsFixed(1)} MB';
+    });
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _cache = cacheSummary(_effectiveCacheDir);
+  }
+
   @override
   void dispose() {
     _repo.dispose();
@@ -36,10 +84,8 @@ class _SettingsDialogState extends State<SettingsDialog> {
     super.dispose();
   }
 
-  void _submit() {
-    Navigator.pop(
-      context,
-      Settings(
+  Settings _collect() {
+    return Settings(
         repo: _repo.text.trim(),
         proxy: _proxy.text.trim(),
         token: _token.text.trim(),
@@ -50,26 +96,30 @@ class _SettingsDialogState extends State<SettingsDialog> {
         customDirs: widget.settings.customDirs,
         customNames: widget.settings.customNames,
         hiddenDirs: widget.settings.hiddenDirs,
+        safDirs: widget.settings.safDirs,
         syncUrl: widget.settings.syncUrl,
         syncUser: widget.settings.syncUser,
         syncPassword: widget.settings.syncPassword,
         deviceName: widget.settings.deviceName,
-      ),
     );
+  }
+
+  void _submit() {
+    final settings = _collect();
+    if (widget.embedded) {
+      widget.onSaved?.call(settings);
+      return;
+    }
+    Navigator.pop(context, settings);
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return AlertDialog(
-      title: const Text('设置'),
-      content: SizedBox(
-        width: dialogWidth(context, 500),
-        child: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
+    final form = Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
               _SwitchRow(
                 title: '更新后自动部署',
                 subtitle: '复制完成后自动让输入法重新加载，立即生效。建议保持开启。',
@@ -125,12 +175,48 @@ class _SettingsDialogState extends State<SettingsDialog> {
                   const SizedBox(height: 14),
                   TextField(
                     controller: _cacheDir,
+                    onChanged: (_) => _refreshCache(),
                     decoration: const InputDecoration(
                       labelText: '下载缓存目录',
                       hintText: '留空使用系统默认位置',
                       helperText: '安装包下载后存放的位置，一般不用改',
                     ),
                   ),
+                  const SizedBox(height: 6),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          _cache == null
+                              ? '正在统计缓存…'
+                              : _cache!.isEmpty
+                                  ? '缓存为空'
+                                  : '缓存占用 ${_cache!.humanSize}'
+                                      '（${_cache!.files} 个文件）',
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ),
+                      TextButton.icon(
+                        onPressed: _cache == null || _cache!.isEmpty
+                            ? null
+                            : _clearCache,
+                        icon: const Icon(Icons.delete_sweep_outlined, size: 16),
+                        label: const Text('清理缓存'),
+                      ),
+                    ],
+                  ),
+                  if (_cacheNote.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 4),
+                      child: Text(
+                        _cacheNote,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.primary,
+                        ),
+                      ),
+                    ),
                 ],
               ),
               const SizedBox(height: 8),
@@ -140,9 +226,32 @@ class _SettingsDialogState extends State<SettingsDialog> {
                   color: theme.colorScheme.onSurfaceVariant,
                 ),
               ),
-            ],
+      ],
+    );
+
+    if (widget.embedded) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Expanded(child: SingleChildScrollView(child: form)),
+          const SizedBox(height: 8),
+          Align(
+            alignment: Alignment.centerRight,
+            child: FilledButton.icon(
+              onPressed: _submit,
+              icon: const Icon(Icons.save_outlined, size: 16),
+              label: const Text('保存设置'),
+            ),
           ),
-        ),
+        ],
+      );
+    }
+
+    return AlertDialog(
+      title: const Text('设置'),
+      content: SizedBox(
+        width: dialogWidth(context, 500),
+        child: SingleChildScrollView(child: form),
       ),
       actions: [
         TextButton(

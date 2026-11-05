@@ -24,10 +24,14 @@ class SyncLibraryDialog extends StatefulWidget {
     super.key,
     required this.settings,
     required this.profiles,
+    this.embedded = false,
   });
 
   final Settings settings;
   final List<Profile> profiles;
+
+  /// 作为页面内容渲染时不再包 Dialog 与固定高度。
+  final bool embedded;
 
   @override
   State<SyncLibraryDialog> createState() => _SyncLibraryDialogState();
@@ -561,34 +565,38 @@ class _SyncLibraryDialogState extends State<SyncLibraryDialog> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final hasError = _error;
+    final body = Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _header(theme),
+        const Divider(height: 1),
+        Expanded(child: _body(theme)),
+        const Divider(height: 1),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: Text(
+            _status.isNotEmpty
+                ? _status
+                : '同步库共 $_totalFiles 个文件 · 点文件可在线编辑，点「+」上传本机文件',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: hasError
+                  ? theme.colorScheme.error
+                  : theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ),
+      ],
+    );
+
+    if (widget.embedded) return body;
+
     return Dialog(
       child: SizedBox(
         width: dialogWidth(context, 700),
         height: dialogHeight(context, 520),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            _header(theme),
-            const Divider(height: 1),
-            Expanded(child: _body(theme)),
-            const Divider(height: 1),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              child: Text(
-                _status.isNotEmpty
-                    ? _status
-                    : '同步库共 $_totalFiles 个文件 · 点文件可在线编辑，点「+」上传本机文件',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: hasError
-                      ? theme.colorScheme.error
-                      : theme.colorScheme.onSurfaceVariant,
-                ),
-              ),
-            ),
-          ],
-        ),
+        child: body,
       ),
     );
   }

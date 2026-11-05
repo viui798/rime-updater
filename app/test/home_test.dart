@@ -21,10 +21,10 @@ void main() {
     expect(find.text('检查更新'), findsOneWidget);
     expect(find.text('仅预演'), findsOneWidget);
     expect(find.text('一键更新'), findsOneWidget);
-    expect(find.text('设置'), findsOneWidget);
+    // 备份与回滚已移到「更多」页，主页不再显示
+    expect(find.text('备份与回滚'), findsNothing);
     // 启动时不自动请求 GitHub，日志区应保持「等待操作」状态
     expect(find.textContaining('等待操作'), findsOneWidget);
-    expect(find.text('备份与回滚'), findsOneWidget);
     expect(find.byTooltip('添加 Rime 目录'), findsOneWidget);
     expect(find.text('DEVICES'), findsOneWidget);
     expect(find.text('CONSOLE'), findsOneWidget);
@@ -41,8 +41,10 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('检查更新'), findsOneWidget);
-    expect(find.text('云同步'), findsOneWidget);
-    expect(find.text('同步库'), findsOneWidget);
+    // 底部导航：选中项显示文字，其余只有图标
+    expect(find.text('更新器'), findsOneWidget);
+    expect(find.byKey(const ValueKey('home-nav-同步')), findsOneWidget);
+    expect(find.byKey(const ValueKey('home-nav-设置')), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
@@ -69,12 +71,7 @@ void main() {
       expect(find.textContaining('等待操作'), findsOneWidget);
       expect(tester.takeException(), isNull);
       if (size.width < 960 || size.height < 680) {
-        await tester.ensureVisible(find.text('备份与回滚'));
-        await tester.pumpAndSettle();
-        expect(tester.takeException(), isNull);
-        await tester.scrollUntilVisible(find.byTooltip('更多功能'), -200,
-            scrollable: find.byType(Scrollable).first);
-        await tester.tap(find.byTooltip('更多功能'));
+        await tester.tap(find.byKey(const ValueKey('home-nav-更多')));
         await tester.pumpAndSettle();
         expect(find.text('GitHub 方案'), findsOneWidget);
         expect(find.text('从本地 zip 安装'), findsOneWidget);
@@ -89,16 +86,43 @@ void main() {
     });
   }
 
-  testWidgets('设置弹窗可以打开并展开高级设置', (tester) async {
+  testWidgets('设备菜单提供重命名与清空目录，清空有风险确认', (tester) async {
     await tester.binding.setSurfaceSize(const Size(1000, 760));
     addTearDown(() => tester.binding.setSurfaceSize(null));
 
-    await tester.pumpWidget(
-      const MaterialApp(home: HomePage()),
-    );
+    await tester.pumpWidget(const MaterialApp(home: HomePage()));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('设置'));
+    final menus = find.byTooltip('更多操作');
+    if (menus.evaluate().isEmpty) {
+      // 当前机器没有识别到任何 Rime 目录，跳过（CI 常见）。
+      return;
+    }
+    await tester.tap(menus.first);
+    await tester.pumpAndSettle();
+
+    expect(find.text('重命名设备'), findsOneWidget);
+    expect(find.text('清空 Rime 目录'), findsOneWidget);
+    expect(find.text('删除设备'), findsOneWidget);
+
+    // 清空必须二次确认，且明确写出不可恢复
+    await tester.tap(find.text('清空 Rime 目录'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('不可恢复'), findsOneWidget);
+    await tester.tap(find.text('取消'));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('设置作为独立页面，可展开高级设置并看到缓存入口', (tester) async {
+    // 用窄屏尺寸，走底部导航布局
+    await tester.binding.setSurfaceSize(const Size(900, 700));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(const MaterialApp(home: HomePage()));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('home-nav-设置')));
     await tester.pumpAndSettle();
 
     expect(find.text('更新后自动部署'), findsOneWidget);
@@ -109,7 +133,119 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('方案仓库'), findsOneWidget);
     expect(find.text('GitHub Token（可选）'), findsOneWidget);
-    expect(find.text('保存'), findsOneWidget);
+    expect(find.text('下载缓存目录'), findsOneWidget);
+    expect(find.text('清理缓存'), findsOneWidget);
+    expect(find.text('保存设置'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('底部导航可在更新器 / 同步 / 更多 / 设置之间切换', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(420, 900));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(const MaterialApp(home: HomePage()));
+    await tester.pumpAndSettle();
+
+    // 默认在更新器页
+    expect(find.text('一键更新'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('home-nav-同步')));
+    await tester.pumpAndSettle();
+    expect(find.text('云同步'), findsWidgets);
+    expect(find.text('同步库'), findsWidgets);
+
+    await tester.tap(find.byKey(const ValueKey('home-nav-更多')));
+    await tester.pumpAndSettle();
+    expect(find.text('GitHub 方案'), findsOneWidget);
+    expect(find.text('换方案'), findsOneWidget);
+    // 备份与回滚搬家到「更多」
+    expect(find.text('备份与回滚'), findsOneWidget);
+    // 更新器页的内容已经切走
+    expect(find.text('一键更新'), findsNothing);
+
+    await tester.tap(find.byKey(const ValueKey('home-nav-设置')));
+    await tester.pumpAndSettle();
+    expect(find.text('更新后自动部署'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('home-nav-更新器')));
+    await tester.pumpAndSettle();
+    expect(find.text('一键更新'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('桌面侧栏的「同步库」直接落在同步库子页', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(1440, 900));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(const MaterialApp(home: HomePage()));
+    await tester.pumpAndSettle();
+
+    // 先看云同步：有 WebDAV 地址输入框
+    await tester.tap(find.byKey(const ValueKey('sidebar-云同步')));
+    await tester.pumpAndSettle();
+    expect(find.text('WebDAV 地址'), findsOneWidget);
+
+    // 点侧栏「同步库」应直接切到同步库子页，不再显示云同步表单
+    await tester.tap(find.byKey(const ValueKey('sidebar-同步库')));
+    await tester.pumpAndSettle();
+    expect(find.text('WebDAV 地址'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('切换标签时胶囊真的在滑动（而不是瞬移）', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(420, 900));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(const MaterialApp(home: HomePage()));
+    await tester.pumpAndSettle();
+
+    final pill = find.byKey(const ValueKey('home-nav-pill'));
+    final startX = tester.getCenter(pill).dx;
+
+    await tester.tap(find.byKey(const ValueKey('home-nav-更多')));
+    await tester.pump(); // 提交状态变化，动画从起点开始
+    // 动画进行中：位置应当在起点与终点之间
+    await tester.pump(const Duration(milliseconds: 90));
+    final midX = tester.getCenter(pill).dx;
+    expect(midX, greaterThan(startX));
+
+    // 动画结束后到达新位置并停住
+    await tester.pumpAndSettle();
+    final endX = tester.getCenter(pill).dx;
+    expect(endX, greaterThan(midX));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('切换页面是整屏横向推入，而不是瞬间替换', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(420, 900));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(const MaterialApp(home: HomePage()));
+    await tester.pumpAndSettle();
+    expect(find.text('一键更新'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('home-nav-更多')));
+    await tester.pump(); // 过渡开始，新页此时还在屏幕右侧
+
+    final newPage = find.byKey(const ValueKey('page-2'));
+    expect(newPage, findsOneWidget);
+    // 旧页立刻退场，过渡中不得残留（避免「残影」观感）
+    expect(find.text('一键更新'), findsNothing);
+    expect(find.byKey(const ValueKey('page-0')), findsNothing);
+    final startDx = tester.getTopLeft(newPage).dx;
+    // 整屏推入：起始位置应当接近屏幕右缘，而不是已经就位
+    expect(startDx, greaterThan(300));
+
+    // 过渡中途仍在移动
+    await tester.pump(const Duration(milliseconds: 120));
+    final midDx = tester.getTopLeft(newPage).dx;
+    expect(midDx, lessThan(startDx));
+
+    await tester.pumpAndSettle();
+    expect(tester.getTopLeft(newPage).dx, closeTo(0, 1));
+    // 过渡结束后旧页移除
+    expect(find.text('一键更新'), findsNothing);
+    expect(find.text('GitHub 方案'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 

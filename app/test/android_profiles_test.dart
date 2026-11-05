@@ -50,7 +50,7 @@ void main() {
       await root.delete(recursive: true);
     }
   });
-  test('finds known public paths and targets shared schema folders only once',
+  test('finds known public paths and targets schema folders only once',
       () async {
     final root = await Directory.systemTemp.createTemp('extra-frontends-');
     try {
@@ -69,7 +69,11 @@ void main() {
         '${root.path}/Documents/rime/schemas/芝士虎整',
         '${root.path}/Documents/rime/schemas/另一个方案',
       });
-      expect(profiles.where((item) => item.label.contains('共用')), hasLength(2));
+      // Documents/rime 只属于中文输入法2，不能标成与元书共用。
+      expect(
+          profiles.where((item) => item.label.startsWith('中文输入法2')), hasLength(2));
+      expect(profiles.any((item) => item.label.contains('元书')), false);
+      expect(profiles.any((item) => item.label.contains('共用')), false);
       expect(profiles.any((item) => item.path == '${root.path}/Documents/rime'),
           false);
     } finally {

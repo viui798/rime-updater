@@ -1,7 +1,7 @@
 name: rime_updater
 description: 芝士虎整 Rime 整合包的多设备一键更新工具
 publish_to: none
-version: 0.10.0+4
+version: 0.10.0+36
 
 environment:
   sdk: ^3.5.0
@@ -12,11 +12,14 @@ dependencies:
   archive: ^4.0.7
   crypto: ^3.0.6
   path: ^1.9.0
+  saf_util: ^3.1.1
+  saf_stream: ^4.0.3
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^5.0.0
+  plugin_platform_interface: ^2.1.8
 
 flutter:
   uses-material-design: true

@@ -157,10 +157,12 @@ List<Profile> detectAndroidPublicProfiles(String storageRoot) {
   }
 
   // These frontends use public folders outside the usual top-level rime path.
-  // 中文输入法2 and 元书 share one directory, so it must be updated only once.
+  // 元书（Hamster）的数据在应用私有 files/Documents/ 里，只能通过
+  // HamsterDocumentsProvider（系统文件选择器 / MT 管理器挂载）访问，
+  // 这里的 Documents/rime 只属于中文输入法2，不能与元书混为一谈。
   add('中文输入法', p.join(storageRoot, 'Android', 'rime'));
   final shared = p.join(storageRoot, 'Documents', 'rime');
-  const sharedLabel = '中文输入法2 / 元书（共用）';
+  const sharedLabel = '中文输入法2';
   if (looksLikeRimeDir(shared)) {
     add(sharedLabel, shared);
   } else {
@@ -247,6 +249,27 @@ void _scanWindows(
   }
 }
 
+/// 用设置里的自定义名称覆盖设备显示名。
+/// 自动识别、Shizuku、SAF 目录都按路径查找，重命名才会对所有设备生效。
+List<Profile> applyCustomNames(
+  List<Profile> profiles,
+  Map<String, String> names,
+) {
+  if (names.isEmpty) return profiles;
+  return [
+    for (final profile in profiles)
+      if ((names[profile.path] ?? '').trim().isEmpty)
+        profile
+      else
+        Profile(
+          label: names[profile.path]!.trim(),
+          path: profile.path,
+          kind: profile.kind,
+          safUri: profile.safUri,
+        ),
+  ];
+}
+
 List<Profile> profilesFromPaths(
   List<String> paths, {
   Map<String, String> names = const {},
@@ -328,6 +351,25 @@ bool shouldCopy(String rel, {int size = 0, String target = ''}) {
       name.endsWith('.txt') ||
       name.endsWith('.json') ||
       name.endsWith('.lua');
+}
+
+/// 清空某个 Rime 用户目录下的全部内容（含个人数据），保留目录本身与
+/// 本工具自己的版本标记 / 备份，避免下次探测立即失联或误判版本。
+///
+/// 返回删除的条目数。这是一个不可逆操作，调用方必须在删除前完成确认。
+int clearRimeDir(String dir, {required void Function(String line) log}) {
+  final root = Directory(dir);
+  if (!root.existsSync()) return 0;
+  final keep = {markerFile, backupDirName};
+  var removed = 0;
+  for (final entity in root.listSync(followLinks: false)) {
+    final name = p.basename(entity.path);
+    if (keep.contains(name)) continue;
+    entity.deleteSync(recursive: true);
+    removed++;
+    log('  删除 $name');
+  }
+  return removed;
 }
 
 /// 删除某个用户目录下的全部快照，返回删除的份数。

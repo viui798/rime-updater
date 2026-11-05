@@ -43,6 +43,26 @@ void main() {
     expect(decoded.copyWith(hiddenDirs: ['/two']).hiddenDirs, ['/two']);
   });
 
+  test('SAF 目录会随设置保存与读取', () {
+    final settings = Settings(
+      safDirs: [
+        {
+          'uri': 'content://com.ihsiao.apps.hamster.documents/tree/x',
+          'label': '元书',
+          'root': 'content://root',
+          'sub': 'cheese-tiger-v0',
+        }
+      ],
+    );
+    final decoded = Settings.fromJson(
+      jsonDecode(jsonEncode(settings.toJson())) as Map<String, dynamic>,
+    );
+    expect(decoded.safDirs, hasLength(1));
+    expect(decoded.safDirs.single['label'], '元书');
+    // copyWith 不应丢字段
+    expect(decoded.copyWith(token: 't').safDirs, decoded.safDirs);
+  });
+
   test('自定义名称会替换目录名作为显示名', () {
     final rimeDir = Directory.systemTemp.createTempSync('rime-named-');
     addTearDown(() => rimeDir.deleteSync(recursive: true));

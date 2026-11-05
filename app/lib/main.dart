@@ -5,23 +5,40 @@ import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 
 import 'core/android_platform.dart';
+import 'core/cache_manager.dart';
 import 'core/android_profiles.dart';
 import 'core/deployer.dart';
 import 'core/github_client.dart';
 import 'core/local_package.dart';
 import 'core/package_preparer.dart';
 import 'core/rime_profile.dart' as rime;
+import 'core/saf_client.dart';
+import 'core/saf_installer.dart';
 import 'core/scheme_switcher.dart';
 import 'core/settings_store.dart';
 import 'core/zip_installer.dart';
 import 'models.dart';
 import 'ui/app_theme.dart';
+import 'ui/home_nav.dart';
 import 'ui/local_zip_dialog.dart';
 import 'ui/remote_scheme_dialog.dart';
 import 'ui/settings_dialog.dart';
 import 'ui/switch_scheme_dialog.dart';
 import 'ui/sync_dialog.dart';
 import 'ui/sync_library_dialog.dart';
+
+/// Shizuku 弹窗里的状态说明，按「已连接 / 未授权 / 未启动」分三种。
+String shizukuStatusText({required bool granted, required bool running}) {
+  if (granted) return 'Shizuku：已连接，可识别并管理 Android/data 下的 Rime 目录。';
+  if (running) return 'Shizuku：正在运行，尚未授权。授权后才能读取 Android/data 下的目录。';
+  return 'Shizuku：尚未启动，请先打开 Shizuku 应用并启动服务。';
+}
+
+/// Shizuku 弹窗里主按钮的文案：已连上就不再提示「连接」。
+String shizukuActionLabel({required bool granted, required bool running}) {
+  if (granted) return '已连接 Shizuku';
+  return running ? '授权 Shizuku' : '连接 Shizuku';
+}
 
 void main() {
   runApp(const RimeUpdaterApp());
@@ -53,6 +70,25 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   final Map<String, Map<String, dynamic>> _androidProfiles = {};
   List<String> _androidUnavailable = [];
   bool _discoveringAndroid = false;
+  final SafClient _saf = SafClient();
+  /// SAF 目录的版本号缓存（URI -> 版本），异步读取后填充。
+  final Map<String, String> _safVersions = {};
+
+  /// 本次运行已清理过残留标记的 SAF 目录，避免重复扫描。
+  final Set<String> _safCleaned = {};
+
+  /// Shizuku 连接状态：running / granted。界面据此提示，避免用户不知道
+  /// 到底连没连上。
+  Map<String, dynamic> _shizukuState = const {};
+
+  /// 当前页面：0 更新器 / 1 同步 / 2 更多 / 3 设置。
+  int _tab = 0;
+
+  /// 同步页的子页：0 云同步 / 1 同步库。侧栏入口可以直接落到指定子页。
+  int _syncSub = 0;
+
+  /// 上一次停留的页面，用来决定滑动方向（往右切就从右侧滑入）。
+  int _prevTab = 0;
   Settings _settings = const Settings();
   List<Profile> _profiles = const [];
   final Set<String> _selected = {};
@@ -87,6 +123,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     _refreshBackups();
     // 启动时不自动请求 GitHub：只有用户点「检查更新」或其他操作时才联网
     if (Platform.isAndroid) {
+      // 后台迁移旧的下载缓存位置，避免用户再白下一次完整包。
+      migrateLegacyAndroidCache();
+      _refreshShizukuState();
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) _ensureAndroidAccess();
       });
@@ -141,6 +180,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     _discoveringAndroid = true;
     try {
       final status = await shizukuStatus();
+      if (mounted) setState(() => _shizukuState = status);
       if (status['granted'] != true) {
         if (mounted) {
           setState(() {
@@ -172,18 +212,56 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     }
   }
 
+  Future<void> _refreshShizukuState() async {
+    if (!Platform.isAndroid) return;
+    try {
+      final status = await shizukuStatus();
+      if (!mounted) return;
+      setState(() => _shizukuState = status);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _shizukuState = const {});
+    }
+  }
+
+  /// Shizuku 状态的文字与颜色：未启动 / 未授权 / 已连接。
+  (String, Color) _shizukuBadge(ThemeData theme) {
+    final running = _shizukuState['running'] == true;
+    final granted = _shizukuState['granted'] == true;
+    if (granted) {
+      return (
+        'Shizuku 已连接',
+        theme.brightness == Brightness.dark
+            ? AppColors.successDark
+            : AppColors.success
+      );
+    }
+    if (running) return ('Shizuku 未授权', theme.colorScheme.tertiary);
+    return ('Shizuku 未启动', theme.colorScheme.onSurfaceVariant);
+  }
+
   Future<void> _openAndroidAccess() async {
     final status = await shizukuStatus();
     if (!mounted) return;
+    setState(() => _shizukuState = status);
+    final granted = status['granted'] == true;
+    final running = status['running'] == true;
     final enable = await showDialog<bool>(
         context: context,
-        builder: (context) => AlertDialog(
+        builder: (context) {
+          final theme = Theme.of(context);
+          final okColor = theme.brightness == Brightness.dark
+              ? AppColors.successDark
+              : AppColors.success;
+          return AlertDialog(
               title: const Text('Android 输入法访问'),
               content: SingleChildScrollView(
-                  child: Text('公共目录：授权「所有文件访问」后可直接更新，点「+」可填写自定义目录。\n\n'
-                      'Shizuku：${status['running'] == true ? (status['granted'] == true ? '已授权' : '正在运行，尚未授权') : '尚未启动，请先在 Shizuku 中启动服务'}。'
-                      '授权后可识别和管理 Android/data 下的 Rime 目录。\n\n'
-                      '应用内部私有目录（/data/user/0）无法通过普通 Shizuku 访问，请在输入法中使用公共用户目录或导入导出功能。'
+                  child: Text('公共目录：授权「所有文件访问」后可直接更新。点设备区「+」可添加目录，'
+                      '其中「系统文件选择器」能选 Android/data 与元书这类受限目录。\n\n'
+                      '${shizukuStatusText(granted: granted, running: running)}\n\n'
+                      '应用内部私有目录（/data/user/0）无法通过普通 Shizuku 访问，请在输入法中使用公共用户目录或导入导出功能。\n\n'
+                      '元书（Hamster）的数据存放在应用私有目录，仅通过系统文件选择器（HamsterDocumentsProvider）对外暴露，'
+                      '本工具无法直接读写；如需管理，请在元书内使用导入导出，或把方案放到公共目录。'
                       '${_androidUnavailable.isEmpty ? '' : '\n\n未找到可访问目录：${_androidUnavailable.join('、')}。可能使用公共目录或内部私有目录。'}')),
               actions: [
                 TextButton(
@@ -195,14 +273,32 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 TextButton(
                     onPressed: () => Navigator.pop(context, false),
                     child: const Text('关闭')),
-                FilledButton(
+                if (granted)
+                  FilledButton.icon(
+                    // 表达「已连上」而不是「不可用」：禁用点击但用成功色呈现。
+                    onPressed: null,
+                    icon: const Icon(Icons.check_circle_outline, size: 16),
+                    style: FilledButton.styleFrom(
+                      disabledBackgroundColor: okColor.withValues(alpha: 0.14),
+                      disabledForegroundColor: okColor,
+                      side: BorderSide(color: okColor.withValues(alpha: 0.5)),
+                    ),
+                    label: const Text('已连接 Shizuku'),
+                  )
+                else
+                  FilledButton(
                     onPressed: () => Navigator.pop(context, true),
-                    child: const Text('连接 Shizuku')),
+                    child: Text(
+                        shizukuActionLabel(granted: granted, running: running)),
+                  ),
               ],
-            ));
+          );
+        });
     if (enable != true) return;
     try {
       if (await requestShizuku()) {
+        await _refreshShizukuState();
+        _setStatus('Shizuku 已连接');
         await _discoverAndroid();
       } else if (mounted) {
         _setStatus('未授予 Shizuku 权限');
@@ -212,9 +308,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     }
   }
 
-  String _profileVersion(Profile profile) =>
-      _androidProfiles[profile.path]?['version'] as String? ??
-      rime.readLocalVersion(profile.path);
+  String _profileVersion(Profile profile) {
+    if (profile.isSaf) return _safVersions[profile.safUri] ?? '';
+    return _androidProfiles[profile.path]?['version'] as String? ??
+        rime.readLocalVersion(profile.path);
+  }
 
   @override
   void dispose() {
@@ -225,7 +323,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   void _refreshProfiles() {
     if (Platform.isAndroid && !_discoveringAndroid) _discoverAndroid();
-    final profiles = rime.detectProfiles(hidden: _settings.hiddenDirs);
+    var profiles = rime.detectProfiles(hidden: _settings.hiddenDirs);
     for (final item in _androidProfiles.values) {
       final path = item['path'] as String;
       if (_settings.hiddenDirs.contains(path)) continue;
@@ -246,16 +344,98 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         profiles.add(custom);
       }
     }
+    // SAF 目录（如元书）没有真实文件系统路径，用 content:// URI 表示。
+    for (final item in _settings.safDirs) {
+      final uri = item['uri'] as String? ?? '';
+      if (uri.isEmpty) continue;
+      final rootUri = item['root'] as String? ?? uri.split('|').first;
+      final sub = item['sub'] as String? ?? '';
+      final label = item['label'] as String? ?? 'SAF 目录';
+      profiles.add(Profile(
+        label: sub.isEmpty ? label : '$label · $sub',
+        path: rootUri,
+        kind: 'saf',
+        safUri: uri,
+      ));
+    }
+    // 重命名对所有设备生效：自动识别、Shizuku、SAF 目录一律按 customNames 覆盖。
+    // 之前只在手动添加的目录上生效，导致自动识别的设备改名后仍显示原名。
+    // 注意：applyCustomNames 在无自定义名称时会原样返回同一个 list，
+    // 因此必须重新赋值而不是 clear + addAll（后者会把列表清空）。
+    profiles = rime.applyCustomNames(profiles, _settings.customNames);
+
     for (final profile in profiles) {
       // 只对首次出现的设备默认勾选，用户取消后不会被重新勾上
-      if (_known.add(profile.path)) {
-        _selected.add(profile.path);
+      if (_known.add(profile.identity)) {
+        _selected.add(profile.identity);
       }
     }
     _selected.removeWhere(
-      (path) => !profiles.any((profile) => profile.path == path),
+      (id) => !profiles.any((profile) => profile.identity == id),
     );
+    _refreshSafVersions(profiles.where((p) => p.isSaf).toList());
     setState(() => _profiles = profiles);
+  }
+
+  /// 统一的「添加目录」入口。Android 上 SAF 选择器能覆盖手动填路径的全部场景，
+  /// 还能选 Android/data、元书这类受限目录，所以合并成一个入口再让用户选方式。
+  Future<void> _addDirectory() async {
+    if (_busy) return;
+    if (!Platform.isAndroid) {
+      await _addRimeDir();
+      return;
+    }
+    final choice = await showDialog<String>(
+      context: context,
+      builder: (context) => SimpleDialog(
+        title: const Text('添加 Rime 目录'),
+        children: [
+          SimpleDialogOption(
+            onPressed: () => Navigator.pop(context, 'saf'),
+            child: const Padding(
+              padding: EdgeInsets.symmetric(vertical: 6),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('系统文件选择器（推荐）'),
+                  SizedBox(height: 2),
+                  Text(
+                    '可以选 Android/data 里的输入法目录，以及元书等'
+                    '只在系统选择器里出现的目录。',
+                    style: TextStyle(fontSize: 12),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const Divider(height: 1),
+          SimpleDialogOption(
+            onPressed: () => Navigator.pop(context, 'path'),
+            child: const Padding(
+              padding: EdgeInsets.symmetric(vertical: 6),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('手动输入公共路径'),
+                  SizedBox(height: 2),
+                  Text(
+                    '适用于 /storage/emulated/0 下的公共目录；'
+                    'Android/data 与应用私有目录用上面的选择器。',
+                    style: TextStyle(fontSize: 12),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+    if (!mounted || choice == null) return;
+    if (choice == 'saf') {
+      await _addSafDir();
+    } else {
+      await _addRimeDir();
+    }
   }
 
   Future<void> _addRimeDir() async {
@@ -335,8 +515,124 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     saveSettings(updated);
     setState(() => _settings = updated);
     _refreshProfiles();
-    setState(() => _selected.add(normalized));
+    setState(() => _selected.add(normalized));  // 手动目录无 SAF，identity 即路径
     _setStatus('已添加 ${p.basename(normalized)}');
+  }
+
+  /// 从 SAF 的 document URI 推测一个默认显示名（取最后一级目录名）。
+  String _safDefaultLabel(String uri) {
+    const marker = '/document/';
+    final index = uri.lastIndexOf(marker);
+    final docId = index >= 0 ? uri.substring(index + marker.length) : uri;
+    final decoded = Uri.decodeComponent(docId).replaceAll('\\', '/');
+    final parts = decoded.split('/').where((s) => s.isNotEmpty).toList();
+    return parts.isEmpty ? 'SAF 目录' : parts.last;
+  }
+
+  /// 通过系统文件选择器添加 SAF 目录（元书 / SD 卡等）。
+  /// 先用 SAF 客户端让用户选择目录，再尝试识别里面的 Rime 方案子目录。
+  Future<void> _addSafDir() async {
+    if (_busy) return;
+    SafRoot? root;
+    try {
+      root = await _saf.pickDirectory(label: 'SAF 目录');
+    } catch (error) {
+      _setStatus('无法打开目录选择器：$error', error: true);
+      return;
+    }
+    if (root == null) return;
+    if (!mounted) return;
+
+    final labelName = await showDialog<String>(
+      context: context,
+      builder: (context) {
+        final controller = TextEditingController(text: _safDefaultLabel(root!.uri));
+        return AlertDialog(
+          title: const Text('命名这个目录'),
+          content: TextField(
+            controller: controller,
+            autofocus: true,
+            decoration: const InputDecoration(labelText: '显示名称'),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, controller.text.trim()),
+              child: const Text('添加'),
+            ),
+          ],
+        );
+      },
+    );
+    if (labelName == null) return;
+
+    var sub = '';
+    try {
+      final detected = await _saf.detectRimeSubdir(root);
+      if (detected == null) {
+        _setStatus('该目录里没有找到 Rime 配置，仍然添加以便手动指定', error: true);
+      } else {
+        sub = detected;
+      }
+    } catch (error) {
+      _setStatus('读取目录失败：$error', error: true);
+      return;
+    }
+
+    final label = labelName.isEmpty ? root.label : labelName;
+    final safUri = sub.isEmpty ? root.uri : '${root.uri}|$sub';
+    final updated = _settings.copyWith(
+      safDirs: [
+        ..._settings.safDirs.where((item) => item['uri'] != safUri),
+        {'uri': safUri, 'label': label, 'root': root.uri, 'sub': sub},
+      ],
+    );
+    saveSettings(updated);
+    setState(() => _settings = updated);
+    _refreshProfiles();
+    _setStatus('已添加目录 $label');
+  }
+
+  Future<void> _removeSafDir(Map<String, dynamic> item) async {
+    if (_busy) return;
+    final uri = item['uri'] as String? ?? '';
+    final label = item['label'] as String? ?? uri;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('移除 SAF 目录'),
+        content: Text('从列表移除「$label」？\n只取消授权，不会删除任何文件。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('移除'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    final rootUri = item['root'] as String? ?? '';
+    if (rootUri.isNotEmpty) {
+      try {
+        await _saf.releasePermission(rootUri);
+      } catch (_) {
+        // 释放授权失败不影响本地记录清理
+      }
+    }
+    final updated = _settings.copyWith(
+      safDirs: _settings.safDirs.where((e) => e['uri'] != uri).toList(),
+    );
+    saveSettings(updated);
+    setState(() => _settings = updated);
+    _refreshProfiles();
+    _setStatus('已移除 $label');
   }
 
   Future<void> _removeProfile(Profile profile) async {
@@ -378,15 +674,43 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             hiddenDirs: [..._settings.hiddenDirs, profile.path],
           );
     saveSettings(updated);
-    _known.remove(profile.path);
+    _known.remove(profile.identity);
     setState(() {
       _settings = updated;
-      _selected.remove(profile.path);
+      _selected.remove(profile.identity);
       _profiles = _profiles.where((item) => item.path != profile.path).toList();
     });
     _refreshProfiles();
     _refreshBackups();
     _setStatus('已删除设备 ${profile.label}');
+  }
+
+  /// 异步读取 SAF 目录的版本号并刷新界面（SAF 只能异步访问）。
+  Future<void> _refreshSafVersions(List<Profile> safProfiles) async {
+    if (safProfiles.isEmpty) return;
+    var changed = false;
+    for (final profile in safProfiles) {
+      final uri = profile.safUri;
+      if (uri == null || uri.isEmpty) continue;
+      // 一次性清掉历史写入失败留下的「N.cheese-tiger-version」残留。
+      if (_safCleaned.add(uri)) {
+        final removed = await cleanStaleSafMarkers(_saf, uri, log: _logLine);
+        if (removed > 0) {
+          _logLine('  已清理 $removed 个残留版本标记');
+          _safVersions.remove(uri);
+        }
+      }
+      try {
+        final version = await readSafLocalVersion(_saf, uri);
+        if (_safVersions[uri] != version) {
+          _safVersions[uri] = version;
+          changed = true;
+        }
+      } catch (_) {
+        // 授权失效或目录不可读时保持「版本未知」，不打断界面。
+      }
+    }
+    if (changed && mounted) setState(() {});
   }
 
   void _refreshBackups() {
@@ -462,6 +786,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       _releaseCacheAt = DateTime.now();
       _releaseCacheRepo = _settings.repo.trim();
       _setStatus('检查完成');
+    } on AlreadyLatest catch (latest) {
+      // 全部设备已最新：没有下载任何包，直接结束。
+      if (!mounted) return;
+      setState(() => _progress = 1);
+      _setStatus('全部设备已是最新 v${latest.version}');
+      _refreshProfiles();
+      _refreshBackups();
     } catch (error) {
       _logLine('✗ $error');
       _setStatus('$error', error: true);
@@ -523,7 +854,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       }
       final package = await preparePackage(
         settings: _settings,
-        installedVersions: _profiles.map((p) => rime.readLocalVersion(p.path)).toList(),
+        // SAF 目录没有文件系统路径，必须走版本缓存，否则永远被当成「版本未知」
+        // 而白白下载几百 MB 完整包。
+        installedVersions: _profiles.map(_profileVersion).toList(),
         profilePaths: _profiles.map((p) => p.path).toList(),
         log: _logLine,
         progress: (percent) {
@@ -535,13 +868,54 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       _logLine('准备更新 ${targets.length} 个用户目录'
           '（${dryRun ? '预演' : '正式'}）');
 
-      final picked = _profiles.where((p) => targets.contains(p.path)).toList();
+      final picked =
+          _profiles.where((p) => targets.contains(p.identity)).toList();
+      final failed = <String>[];
       for (var index = 0; index < picked.length; index++) {
         final profile = picked[index];
         _logLine('');
         _logLine('[${profile.label}] ${profile.path}');
         final base = 55 + index * 45 ~/ picked.length;
         final span = 45 ~/ picked.length;
+
+        // 已经在本版本上的设备直接跳过：避免每次点更新都对所有设备
+        // 重新遍历文件并重复部署（重启输入法）。
+        if (_profileVersion(profile) == package.version) {
+          _logLine('  已是最新 v${package.version}，跳过');
+          continue;
+        }
+
+        // 单个设备失败不应中断整批：记录后继续下一个。
+        try {
+        // SAF 目录（如元书）没有文件系统路径，走 SAF 专用安装流程。
+        if (profile.isSaf) {
+          final domain = profile.safUri!.split('/tree/').first;
+          final ok = await _saf.hasPermission(profile.safUri!) ||
+              await _saf.hasPermission(domain);
+          if (!ok) {
+            _logLine('✗ 该 SAF 目录的访问授权已失效，请移除后重新添加：${profile.label}');
+            _setStatus('SAF 授权失效，请重新添加 ${profile.label}', error: true);
+            continue;
+          }
+          final result = await applyZipToSaf(
+            client: _saf,
+            rootUri: profile.safUri!,
+            zipPath: package.zipPath,
+            version: package.version,
+            snapshot: _settings.snapshot && !dryRun,
+            dryRun: dryRun,
+            log: _logLine,
+          );
+          _logLine('  SAF：${dryRun ? '将' : '已'}写入 ${result.copied} 个文件，'
+              '跳过 ${result.skipped} 个');
+          if (result.backupStamp.isNotEmpty) {
+            _logLine('  已创建 SAF 备份 ${result.backupStamp}');
+          }
+          if (!dryRun) {
+            _logLine('  注意：SAF 目录无法自动部署，请在元书内重新加载方案');
+          }
+          continue;
+        }
 
         final stats = await withProfileDirectory(
             profile,
@@ -570,11 +944,42 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           await deployProfile(profile,
               restart: _settings.restart, log: _logLine);
         }
+        } catch (error) {
+          _logLine('✗ ${profile.label} 失败：$error');
+          failed.add(profile.label);
+        }
+      }
+
+      // 更新成功后只保留当前版本用到的包，避免每次发版都多留一份
+      // （完整包单个可达几百 MB）。
+      if (!dryRun) {
+        final keep = <String>{
+          package.assetName,
+          '${package.assetName}.sha256',
+          'MODEL.json',
+        };
+        final freed = pruneCache(resolveCacheDir(_settings), keep: keep);
+        if (freed > 0) {
+          _logLine('  已清理旧缓存 '
+              '${(freed / 1024 / 1024).toStringAsFixed(1)} MB');
+        }
       }
 
       if (!mounted) return;
       setState(() => _progress = 1);
-      _setStatus(dryRun ? '预演完成' : '更新完成');
+      if (failed.isEmpty) {
+        _setStatus(dryRun ? '预演完成' : '更新完成');
+      } else {
+        final stage = dryRun ? '预演' : '更新';
+        _setStatus('$stage部分失败：${failed.join('、')}', error: true);
+      }
+      _refreshProfiles();
+      _refreshBackups();
+    } on AlreadyLatest catch (latest) {
+      // 全部设备已最新：没有下载任何包，直接结束。
+      if (!mounted) return;
+      setState(() => _progress = 1);
+      _setStatus('全部设备已是最新 v${latest.version}');
       _refreshProfiles();
       _refreshBackups();
     } catch (error) {
@@ -627,6 +1032,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       }
       setState(() => _progress = 1);
       _setStatus('回滚完成');
+      _refreshProfiles();
+      _refreshBackups();
+    } on AlreadyLatest catch (latest) {
+      // 全部设备已最新：没有下载任何包，直接结束。
+      if (!mounted) return;
+      setState(() => _progress = 1);
+      _setStatus('全部设备已是最新 v${latest.version}');
       _refreshProfiles();
       _refreshBackups();
     } catch (error) {
@@ -701,6 +1113,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       if (!mounted) return;
       setState(() => _progress = 1);
       _setStatus('安装完成');
+      _refreshProfiles();
+      _refreshBackups();
+    } on AlreadyLatest catch (latest) {
+      // 全部设备已最新：没有下载任何包，直接结束。
+      if (!mounted) return;
+      setState(() => _progress = 1);
+      _setStatus('全部设备已是最新 v${latest.version}');
       _refreshProfiles();
       _refreshBackups();
     } catch (error) {
@@ -841,6 +1260,69 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     setState(() => _settings = updated);
     _refreshProfiles();
     _setStatus('已重命名为 ${trimmed.isEmpty ? p.basename(profile.path) : trimmed}');
+  }
+
+  Future<void> _clearProfile(Profile profile) async {
+    if (_busy) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('清空 Rime 目录'),
+        content: Text(
+          '将删除「${profile.label}」目录下的全部内容：\n'
+          '${profile.path}\n\n'
+          '⚠️ 这包括个人数据（词库、自造词、调频、开关记忆），'
+          '且不备份、不可恢复。\n\n'
+          '删除后需要重新安装方案才能使用该设备。确定继续？',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(context).colorScheme.error,
+            ),
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('清空'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    setState(() {
+      _busy = true;
+      _progress = 0;
+      _status = '正在清空…';
+      _statusError = false;
+    });
+    _logLine('');
+    _logLine('[${profile.label}] ${profile.path}');
+    try {
+      final removed = await withProfileDirectory(
+        profile,
+        (local) async =>
+            rime.clearRimeDir(local.path, log: _logLine),
+      );
+      setState(() => _progress = 1);
+      _setStatus('已清空 ${profile.label}（$removed 项）');
+      _refreshProfiles();
+      _refreshBackups();
+    } on AlreadyLatest catch (latest) {
+      // 全部设备已最新：没有下载任何包，直接结束。
+      if (!mounted) return;
+      setState(() => _progress = 1);
+      _setStatus('全部设备已是最新 v${latest.version}');
+      _refreshProfiles();
+      _refreshBackups();
+    } catch (error) {
+      _logLine('✗ $error');
+      _setStatus('$error', error: true);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
   }
 
   Future<void> _clearBackups() async {
@@ -995,60 +1477,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     }
   }
 
-  Future<void> _openSync() async {
-    if (_busy) return;
-    final targets = _selected.toList();
-    if (targets.isEmpty) {
-      _setStatus('请先勾选至少一个设备', error: true);
-      return;
-    }
-
-    final picked =
-        _profiles.where((profile) => targets.contains(profile.path)).toList();
-    final result = await showDialog<Settings>(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => SyncDialog(settings: _settings, profiles: picked),
-    );
-    if (result == null) return;
-    saveSettings(result);
-    setState(() => _settings = result);
-    _refreshProfiles();
-    _setStatus('云同步设置已保存');
-  }
-
-  Future<void> _openSyncLibrary() async {
-    if (_busy) return;
-    if (_settings.syncUrl.trim().isEmpty) {
-      _setStatus('请先点「云同步」配置 WebDAV 地址', error: true);
-      return;
-    }
-    final targets = _selected.toList();
-    if (targets.isEmpty) {
-      _setStatus('请先勾选至少一个设备', error: true);
-      return;
-    }
-    final picked =
-        _profiles.where((profile) => targets.contains(profile.path)).toList();
-    if (!mounted) return;
-    await showDialog<void>(
-      context: context,
-      builder: (context) =>
-          SyncLibraryDialog(settings: _settings, profiles: picked),
-    );
-  }
-
-  Future<void> _openSettings() async {
-    final result = await showDialog<Settings>(
-      context: context,
-      builder: (context) => SettingsDialog(settings: _settings),
-    );
-    if (result == null) return;
-    saveSettings(result);
-    setState(() => _settings = result);
-    _setStatus('设置已保存');
-  }
-
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -1058,19 +1486,26 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           final compact =
               constraints.maxWidth < 960 || constraints.maxHeight < 680;
           if (compact) {
-            return Padding(
-              padding: const EdgeInsets.all(16),
-              child: _buildCompactBody(theme),
+            return Column(
+              children: [
+                Expanded(
+                  child: _buildAnimatedPage(constraints.maxWidth, theme,
+                      compact: true),
+                ),
+                HomeNavBar(
+                  items: _navItems,
+                  index: _tab,
+                  onChanged: _switchTab,
+                ),
+              ],
             );
           }
           return Row(
             children: [
               _buildSidebar(theme),
               Expanded(
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(24, 20, 24, 20),
-                  child: _buildDesktopBody(theme),
-                ),
+                child: _buildAnimatedPage(constraints.maxWidth, theme,
+                    compact: false),
               ),
             ],
           );
@@ -1079,10 +1514,165 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     );
   }
 
+  List<HomeNavItem> get _navItems => const [
+        HomeNavItem(icon: Icons.bolt_rounded, label: '更新器'),
+        HomeNavItem(icon: Icons.cloud_sync_outlined, label: '同步'),
+        HomeNavItem(icon: Icons.widgets_outlined, label: '更多'),
+        HomeNavItem(icon: Icons.settings_outlined, label: '设置'),
+      ];
+
+  void _switchTab(int index) {
+    if (index == _tab) return;
+    setState(() {
+      _prevTab = _tab;
+      _tab = index;
+    });
+  }
+
+  /// 切页动画：按切换方向横向滑入/滑出，并叠加淡入淡出。
+  Widget _buildAnimatedPage(
+      double width, ThemeData theme, {required bool compact}) {
+    final direction = _tab >= _prevTab ? 1.0 : -1.0;
+    final currentKey = ValueKey('page-$_tab');
+    return ClipRect(
+      child: AnimatedSwitcher(
+        duration: const Duration(milliseconds: 300),
+        switchInCurve: Curves.easeOutCubic,
+        switchOutCurve: Curves.easeInCubic,
+        // 只保留当前页：旧页立刻退场，不留残影。
+        layoutBuilder: (currentChild, previousChildren) => Stack(
+          fit: StackFit.expand,
+          children: [
+            if (currentChild != null) currentChild,
+          ],
+        ),
+        transitionBuilder: (child, animation) {
+          // 新页从切换方向整屏滑入；旧页不再绘制。
+          final begin = Offset(direction, 0);
+          final position = Tween<Offset>(begin: begin, end: Offset.zero)
+              .animate(CurvedAnimation(
+            parent: animation,
+            curve: Curves.easeOutCubic,
+          ));
+          return SlideTransition(position: position, child: child);
+        },
+        child: KeyedSubtree(
+          key: currentKey,
+          child: _buildPage(width, theme, compact: compact),
+        ),
+      ),
+    );
+  }
+
+  /// 三个内容页共用的页面容器。
+  Widget _buildPage(double width, ThemeData theme, {required bool compact}) {
+    switch (_tab) {
+      case 1:
+        return _SyncPage(
+          settings: _settings,
+          profiles: _profiles,
+          compact: compact,
+          sub: _syncSub,
+          onSubChanged: (value) => setState(() => _syncSub = value),
+        );
+      case 2:
+        return _buildMorePage(theme, compact: compact);
+      case 3:
+        return _buildSettingsPage(theme, compact: compact);
+      default:
+        return Padding(
+          padding: EdgeInsets.fromLTRB(
+            compact ? 16 : 24,
+            compact ? 16 : 20,
+            compact ? 16 : 24,
+            compact ? 0 : 20,
+          ),
+          child: compact ? _buildCompactBody(theme) : _buildDesktopBody(theme),
+        );
+    }
+  }
+
+  Widget _buildSettingsPage(ThemeData theme, {required bool compact}) {
+    return Padding(
+      padding: EdgeInsets.fromLTRB(
+          compact ? 16 : 24, compact ? 16 : 20, compact ? 16 : 24, 8),
+      child: Card(
+        margin: EdgeInsets.zero,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(18, 16, 18, 12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(children: [
+                Icon(Icons.settings_outlined,
+                    size: 18, color: theme.colorScheme.primary),
+                const SizedBox(width: 8),
+                Text('设置', style: theme.textTheme.titleMedium),
+              ]),
+              const SizedBox(height: 12),
+              Expanded(
+                child: SettingsDialog(
+                  settings: _settings,
+                  embedded: true,
+                  onSaved: (updated) {
+                    saveSettings(updated);
+                    setState(() => _settings = updated);
+                    _setStatus('设置已保存');
+                    _refreshProfiles();
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMorePage(ThemeData theme, {required bool compact}) {
+    Widget tile(IconData icon, String title, String subtitle, VoidCallback? onTap) {
+      return Card(
+        margin: const EdgeInsets.only(bottom: 8),
+        child: ListTile(
+          leading: Icon(icon, size: 20),
+          title: Text(title),
+          subtitle: Text(subtitle),
+          trailing: const Icon(Icons.chevron_right, size: 18),
+          onTap: _busy ? null : onTap,
+        ),
+      );
+    }
+
+    return ListView(
+      padding: EdgeInsets.fromLTRB(
+          compact ? 16 : 24, compact ? 16 : 20, compact ? 16 : 24, 8),
+      children: [
+        Text('更多', style: theme.textTheme.titleMedium),
+        const SizedBox(height: 4),
+        Text('装包、换方案与设备访问',
+            style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant)),
+        const SizedBox(height: 14),
+        tile(Icons.cloud_download_outlined, 'GitHub 方案',
+            '从任意 GitHub 仓库的 Release 安装', _installFromGithub),
+        tile(Icons.inventory_2_outlined, '从本地 zip 安装',
+            '选择本机方案包，按同一套规则覆盖', _installLocalZip),
+        tile(Icons.swap_horiz_rounded, '换方案',
+            '备份个人数据后整体替换为另一套方案', _switchScheme),
+        if (Platform.isAndroid)
+          tile(Icons.admin_panel_settings_outlined, 'Android 权限与 Shizuku',
+              '公共目录授权、受限目录访问状态', _openAndroidAccess),
+        const SizedBox(height: 16),
+        SizedBox(height: 320, child: _buildBackups(theme)),
+      ],
+    );
+  }
+
   Widget _buildSidebar(ThemeData theme) {
     Widget action(IconData icon, String label, VoidCallback? onTap,
         {bool selected = false}) {
       return Padding(
+        key: ValueKey('sidebar-$label'),
         padding: const EdgeInsets.only(bottom: 4),
         child: Material(
           color: selected
@@ -1136,7 +1726,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 ]),
           ]),
           const SizedBox(height: 32),
-          action(Icons.space_dashboard_outlined, '更新概览', () {}, selected: true),
+          action(Icons.space_dashboard_outlined, '更新器', () => _switchTab(0),
+              selected: _tab == 0),
+          action(Icons.widgets_outlined, '更多', () => _switchTab(2),
+              selected: _tab == 2),
           const SizedBox(height: 24),
           Padding(
               padding: const EdgeInsets.only(left: 12, bottom: 10),
@@ -1149,12 +1742,19 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           Padding(
               padding: const EdgeInsets.only(left: 12, bottom: 10),
               child: Text('个人数据', style: theme.textTheme.labelSmall)),
-          action(Icons.cloud_sync_outlined, '云同步', _openSync),
-          action(Icons.folder_open_outlined, '同步库', _openSyncLibrary),
+          action(Icons.cloud_sync_outlined, '云同步', () {
+            setState(() => _syncSub = 0);
+            _switchTab(1);
+          }, selected: _tab == 1 && _syncSub == 0),
+          action(Icons.folder_open_outlined, '同步库', () {
+            setState(() => _syncSub = 1);
+            _switchTab(1);
+          }, selected: _tab == 1 && _syncSub == 1),
           const Spacer(),
           const Divider(),
           const SizedBox(height: 8),
-          action(Icons.settings_outlined, '设置', _openSettings),
+          action(Icons.settings_outlined, '设置', () => _switchTab(3),
+              selected: _tab == 3),
           const SizedBox(height: 10),
           Padding(
               padding: const EdgeInsets.symmetric(horizontal: 12),
@@ -1175,13 +1775,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         const SizedBox(height: 20),
         Expanded(
           child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-            Expanded(
-                flex: 3,
-                child: Column(children: [
-                  Expanded(flex: 7, child: _buildDevices(theme)),
-                  const SizedBox(height: 16),
-                  Expanded(flex: 3, child: _buildBackups(theme)),
-                ])),
+            Expanded(flex: 3, child: _buildDevices(theme)),
             const SizedBox(width: 16),
             Expanded(flex: 2, child: _buildLog(theme)),
           ]),
@@ -1192,8 +1786,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   Widget _buildCompactBody(ThemeData theme) {
     final deviceHeight = math.min(360.0, 84.0 * _profiles.length + 68.0);
-    final backupCount =
-        _backups.values.fold<int>(0, (sum, list) => sum + list.length);
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       _buildHeader(theme, compact: true),
       const SizedBox(height: 16),
@@ -1205,17 +1797,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           _buildHero(theme, compact: true),
           const SizedBox(height: 12),
           _buildMainButtonRow(),
-          const SizedBox(height: 8),
-          _buildShortcutRow(theme),
           const SizedBox(height: 16),
           SizedBox(
               height: math.max(150, deviceHeight), child: _buildDevices(theme)),
           const SizedBox(height: 16),
           SizedBox(height: 260, child: _buildLog(theme)),
-          const SizedBox(height: 16),
-          SizedBox(
-              height: backupCount == 0 ? 160 : 240,
-              child: _buildBackups(theme)),
         ],
       ))),
     ]);
@@ -1256,91 +1842,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     );
   }
 
-  Widget _buildShortcutRow(ThemeData theme) {
-    return Row(
-      children: [
-        Expanded(
-          child: TextButton.icon(
-            onPressed: _busy ? null : _openSync,
-            icon: const Icon(Icons.cloud_sync_outlined, size: 18),
-            label: const Text('云同步'),
-          ),
-        ),
-        Expanded(
-          child: TextButton.icon(
-            onPressed: _busy ? null : _openSyncLibrary,
-            icon: const Icon(Icons.folder_open, size: 18),
-            label: const Text('同步库'),
-          ),
-        ),
-        PopupMenuButton<String>(
-          tooltip: '更多功能',
-          enabled: !_busy,
-          padding: EdgeInsets.zero,
-          child: Container(
-            width: 36,
-            height: 36,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              border: Border.all(color: theme.colorScheme.outlineVariant),
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: Icon(
-              Icons.more_vert,
-              size: 18,
-              color: theme.colorScheme.onSurfaceVariant,
-            ),
-          ),
-          onSelected: (value) {
-            switch (value) {
-              case 'github':
-                _installFromGithub();
-                break;
-              case 'switch':
-                _switchScheme();
-                break;
-              case 'zip':
-                _installLocalZip();
-                break;
-            }
-          },
-          itemBuilder: (context) => const [
-            PopupMenuItem(
-              value: 'github',
-              child: Row(
-                children: [
-                  Icon(Icons.cloud_download_outlined, size: 20),
-                  SizedBox(width: 12),
-                  Text('GitHub 方案'),
-                ],
-              ),
-            ),
-            PopupMenuItem(
-              value: 'switch',
-              child: Row(
-                children: [
-                  Icon(Icons.swap_horiz, size: 20),
-                  SizedBox(width: 12),
-                  Text('换方案'),
-                ],
-              ),
-            ),
-            PopupMenuItem(
-              value: 'zip',
-              child: Row(
-                children: [
-                  Icon(Icons.archive_outlined, size: 20),
-                  SizedBox(width: 12),
-                  Text('从本地 zip 安装'),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ],
-    );
-  }
-
   Widget _buildLogo(ThemeData theme, {double size = 36}) {
     return Container(
       width: size,
@@ -1374,10 +1875,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         Text('管理方案，让每台设备同步向前。', style: theme.textTheme.bodySmall),
       ])),
       if (compact)
-        IconButton(
-            tooltip: '设置',
-            onPressed: _busy ? null : _openSettings,
-            icon: const Icon(Icons.settings_outlined, size: 20))
+        // 设置已经有底部导航入口，这里不再重复放图标。
+        const SizedBox.shrink()
       else
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
@@ -1569,18 +2068,21 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                   ),
                 ],
                 const Spacer(),
-                if (Platform.isAndroid)
+                if (Platform.isAndroid) ...[
+                  _buildShizukuBadge(theme),
                   IconButton(
                       tooltip: 'Android 权限与 Shizuku',
                       onPressed: _busy ? null : _openAndroidAccess,
                       icon: const Icon(Icons.admin_panel_settings_outlined,
                           size: 18),
                       visualDensity: VisualDensity.compact),
+                ],
                 IconButton(
                     tooltip: '重新识别目录',
                     onPressed: _busy
                         ? null
                         : () {
+                            _refreshShizukuState();
                             _refreshProfiles();
                             _refreshBackups();
                           },
@@ -1588,7 +2090,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                     visualDensity: VisualDensity.compact),
                 IconButton(
                   tooltip: '添加 Rime 目录',
-                  onPressed: _busy ? null : _addRimeDir,
+                  onPressed: _busy ? null : _addDirectory,
                   icon: const Icon(Icons.add, size: 18),
                   visualDensity: VisualDensity.compact,
                   style: IconButton.styleFrom(
@@ -1629,15 +2131,16 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     );
   }
 
-  void _toggleProfile(String path) {
+  void _toggleProfile(Profile profile) {
     setState(() {
-      if (!_selected.remove(path)) _selected.add(path);
+      final id = profile.identity;
+      if (!_selected.remove(id)) _selected.add(id);
     });
   }
 
   Widget _buildDeviceRow(ThemeData theme, Profile profile) {
     final current = _profileVersion(profile);
-    final selected = _selected.contains(profile.path);
+    final selected = _selected.contains(profile.identity);
     final radius = BorderRadius.circular(12);
     return Padding(
       padding: const EdgeInsets.only(bottom: 2),
@@ -1648,7 +2151,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         borderRadius: radius,
         child: InkWell(
           borderRadius: radius,
-          onTap: _busy ? null : () => _toggleProfile(profile.path),
+          onTap: _busy ? null : () => _toggleProfile(profile),
           child: Semantics(
             label: profile.label,
             checked: selected,
@@ -1732,18 +2235,73 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                       color: theme.colorScheme.onSurfaceVariant,
                     ),
                     onSelected: (value) {
-                      if (value == 'remove') {
+                      if (value == 'rename') {
+                        _renameProfile(profile);
+                      } else if (value == 'clear') {
+                        _clearProfile(profile);
+                      } else if (value == 'removeSaf') {
+                        final item = _settings.safDirs.firstWhere(
+                          (e) => e['uri'] == profile.safUri,
+                          orElse: () => <String, dynamic>{},
+                        );
+                        if (item.isNotEmpty) _removeSafDir(item);
+                      } else if (value == 'remove') {
                         _removeProfile(profile);
                       }
                     },
-                    itemBuilder: (context) => const [
-                      PopupMenuItem(value: 'remove', child: Text('删除设备')),
+                    itemBuilder: (context) => [
+                      const PopupMenuItem(
+                          value: 'rename', child: Text('重命名设备')),
+                      if (!profile.isSaf)
+                        const PopupMenuItem(
+                            value: 'clear', child: Text('清空 Rime 目录')),
+                      const PopupMenuDivider(),
+                      if (profile.isSaf)
+                        const PopupMenuItem(
+                            value: 'removeSaf', child: Text('移除 SAF 目录'))
+                      else
+                        const PopupMenuItem(
+                            value: 'remove', child: Text('删除设备')),
                     ],
                   ),
                 ],
               ),
             ),
           ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildShizukuBadge(ThemeData theme) {
+    final (label, color) = _shizukuBadge(theme);
+    final narrow = MediaQuery.of(context).size.width < 640;
+    // 窄屏也要能看出连接状态，用短文案；宽屏显示完整句子。
+    final short = label.replaceFirst('Shizuku', '').trim();
+    return Tooltip(
+      message: label,
+      child: InkWell(
+        onTap: _busy ? null : _openAndroidAccess,
+        borderRadius: BorderRadius.circular(999),
+        child: Container(
+          margin: const EdgeInsets.only(right: 4),
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          decoration: BoxDecoration(
+            color: color.withValues(alpha: 0.12),
+            borderRadius: BorderRadius.circular(999),
+          ),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            Icon(Icons.circle, size: 7, color: color),
+            const SizedBox(width: 5),
+            Text(
+                narrow ? short : label,
+                style: theme.textTheme.labelSmall?.copyWith(
+                  color: color,
+                  fontSize: 10.5,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+          ]),
         ),
       ),
     );
@@ -2051,6 +2609,80 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                     padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
                     children: rows,
                   ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// 同步页：把「云同步」与「同步库」放进同一页，用分段控件切换。
+class _SyncPage extends StatelessWidget {
+  const _SyncPage({
+    required this.settings,
+    required this.profiles,
+    required this.compact,
+    required this.sub,
+    required this.onSubChanged,
+  });
+
+  final Settings settings;
+  final List<Profile> profiles;
+  final bool compact;
+  final int sub;
+  final ValueChanged<int> onSubChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: EdgeInsets.fromLTRB(
+        compact ? 16 : 24,
+        compact ? 16 : 20,
+        compact ? 16 : 24,
+        8,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(children: [
+            Icon(Icons.cloud_sync_outlined,
+                size: 18, color: theme.colorScheme.primary),
+            const SizedBox(width: 8),
+            Text('同步', style: theme.textTheme.titleMedium),
+            const Spacer(),
+            SegmentedButton<int>(
+              segments: const [
+                ButtonSegment(value: 0, label: Text('云同步')),
+                ButtonSegment(value: 1, label: Text('同步库')),
+              ],
+              selected: {sub},
+              showSelectedIcon: false,
+              style: const ButtonStyle(
+                visualDensity: VisualDensity.compact,
+              ),
+              onSelectionChanged: (value) => onSubChanged(value.first),
+            ),
+          ]),
+          const SizedBox(height: 12),
+          Expanded(
+            child: Card(
+              margin: EdgeInsets.zero,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
+                child: sub == 0
+                    ? SyncDialog(
+                        embedded: true,
+                        settings: settings,
+                        profiles: profiles,
+                      )
+                    : SyncLibraryDialog(
+                        embedded: true,
+                        settings: settings,
+                        profiles: profiles,
+                      ),
+              ),
+            ),
           ),
         ],
       ),

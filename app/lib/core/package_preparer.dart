@@ -7,6 +7,15 @@ import '../models.dart';
 import 'github_client.dart';
 import 'zip_installer.dart';
 
+/// 所有目标设备都已在远端最新版本，无需下载任何包。
+class AlreadyLatest implements Exception {
+  const AlreadyLatest(this.version);
+  final String version;
+
+  @override
+  String toString() => '已是最新 v$version';
+}
+
 class PreparedPackage {
   const PreparedPackage({
     required this.zipPath,
@@ -40,6 +49,20 @@ Future<PreparedPackage> preparePackage({
   try {
     final info = release ?? await client.fetchLatest();
     log('远端最新：v${info.version}（${info.assetName}）');
+
+    // 所有目标设备都已在最新版本：不必下载任何包（完整包可能有几百 MB）。
+    final norm = info.version.startsWith('v')
+        ? info.version.substring(1)
+        : info.version;
+    final allCurrent = installedVersions.isNotEmpty &&
+        installedVersions.every((v) {
+          final local = (v.startsWith('v') ? v.substring(1) : v).trim();
+          return local.isNotEmpty && local == norm;
+        });
+    if (allCurrent) {
+      log('  所有目标设备都已是 v$norm，跳过下载');
+      throw AlreadyLatest(norm);
+    }
 
     final releaseModelSha = await _fetchModelSha(info, client, log, progress);
     final modelOk =

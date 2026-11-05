@@ -5,6 +5,7 @@ import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
 
 import '../models.dart';
+import 'settings_store.dart';
 
 class UpdateException implements Exception {
   UpdateException(this.message);
@@ -201,27 +202,7 @@ class GithubClient {
     return tokens.isEmpty ? '' : tokens.first.toLowerCase();
   }
 
-  String get _cacheDir {
-    final custom = settings.cacheDir.trim();
-    if (custom.isNotEmpty) return custom;
-    if (Platform.isAndroid) {
-      return p.join(Directory.systemTemp.path, 'cheese-tiger');
-    }
-    if (Platform.isWindows) {
-      return p.join(
-        Platform.environment['LOCALAPPDATA'] ?? Directory.systemTemp.path,
-        'cheese-tiger',
-        'cache',
-      );
-    }
-    if (Platform.isMacOS) {
-      return p.join(
-        Platform.environment['HOME'] ?? '',
-        'Library/Caches/cheese-tiger',
-      );
-    }
-    return p.join(Platform.environment['HOME'] ?? '', '.cache/cheese-tiger');
-  }
+  String get _cacheDir => resolveCacheDir(settings);
 
   String get cacheDir => _cacheDir;
 

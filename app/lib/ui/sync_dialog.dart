@@ -16,10 +16,14 @@ class SyncDialog extends StatefulWidget {
     super.key,
     required this.settings,
     required this.profiles,
+    this.embedded = false,
   });
 
   final Settings settings;
   final List<Profile> profiles;
+
+  /// 作为页面内容渲染时不再包 AlertDialog。
+  final bool embedded;
 
   @override
   State<SyncDialog> createState() => _SyncDialogState();
@@ -430,18 +434,7 @@ class _SyncDialogState extends State<SyncDialog> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return AlertDialog(
-      title: const Row(
-        children: [
-          Icon(Icons.cloud_sync_outlined, size: 22),
-          SizedBox(width: 8),
-          Text('云同步（WebDAV）'),
-        ],
-      ),
-      content: SizedBox(
-        width: dialogWidth(context, 560),
-        child: SingleChildScrollView(
-          child: Column(
+    final content = Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
@@ -539,7 +532,10 @@ class _SyncDialogState extends State<SyncDialog> {
                             ),
                           ],
                         ),
-                        Row(
+                        // 窄屏下三个按钮放不进一行，用 Wrap 自动换行。
+                        Wrap(
+                          spacing: 4,
+                          runSpacing: 0,
                           children: [
                             TextButton.icon(
                               onPressed: _busy ? null : () => _upload(profile),
@@ -552,7 +548,6 @@ class _SyncDialogState extends State<SyncDialog> {
                               icon: const Icon(Icons.add, size: 18),
                               label: const Text('添加文件'),
                             ),
-                            const Spacer(),
                             TextButton.icon(
                               onPressed: _busy ? null : () => _download(profile),
                               icon: const Icon(Icons.cloud_download_outlined,
@@ -603,8 +598,23 @@ class _SyncDialogState extends State<SyncDialog> {
                 ),
               ],
             ],
-          ),
-        ),
+    );
+
+    if (widget.embedded) {
+      return SingleChildScrollView(child: content);
+    }
+
+    return AlertDialog(
+      title: const Row(
+        children: [
+          Icon(Icons.cloud_sync_outlined, size: 22),
+          SizedBox(width: 8),
+          Text('云同步（WebDAV）'),
+        ],
+      ),
+      content: SizedBox(
+        width: dialogWidth(context, 560),
+        child: SingleChildScrollView(child: content),
       ),
       actions: [
         if (_busy)
