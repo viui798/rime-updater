@@ -10,7 +10,7 @@
 1. 拉代码：`git clone https://github.com/viui798/rime-updater && cd rime-updater`
    （原开发机本地目录 `/Users/viui/Desktop/rime更新器`，方案仓库在 `/Users/viui/Desktop/芝士虎整`）
 2. 装 Flutter stable（原机器 3.47.9 / Dart 3.13.7），然后 `cd app && flutter pub get`
-3. 跑验证：`dart analyze`、`flutter test`，当前应为 **83 项全部通过**
+3. 跑验证：`dart analyze`、`flutter test`，当前应为 **85 项全部通过**
 4. 构建：
    - macOS：`DEVELOPER_DIR=/Applications/Xcode-16.2.0.app/Contents/Developer flutter build macos --release`
    - Windows：在 Windows 机器上 `flutter build windows --release`（需 VS「使用 C++ 的桌面开发」）
@@ -83,7 +83,7 @@ Android 的设置与缓存都在应用私有目录（`files/cheese-tiger/`），
 | `app/lib/ui/home_nav.dart` | 底部导航（滑动胶囊） |
 | `app/lib/ui/sync_dialog.dart` / `sync_library_dialog.dart` / `settings_dialog.dart` | 可内嵌的页面组件 |
 | `app/android/.../ShizukuBridge.kt` / `RimeFileService.kt` | Shizuku 绑定与受限目录文件服务 |
-| `app/test/` | 10 个测试文件，83 项；改核心逻辑必须补测试 |
+| `app/test/` | 10 个测试文件，85 项；改核心逻辑必须补测试 |
 | `ios/scripting/cheese-tiger-updater/` | iOS 脚本（1.5.0，四 Tab + 检查脚本更新） |
 | `.github/workflows/build.yml` | 推 `v*` tag 或手动触发：三平台构建，tag 时建 Release |
 | `update_desktop.py` / `gui_app.py` / `web/` / `build_app.py` | Python 参照实现与备用 Web 界面 |
@@ -129,7 +129,7 @@ Android 的设置与缓存都在应用私有目录（`files/cheese-tiger/`），
 ```bash
 cd app
 dart analyze                      # 必须无问题
-flutter test                      # 当前 83 项，全绿
+flutter test                      # 当前 85 项，全绿
 
 # macOS
 DEVELOPER_DIR=/Applications/Xcode-16.2.0.app/Contents/Developer flutter build macos --release
@@ -222,9 +222,9 @@ npx --no-install esbuild index.tsx --bundle --loader:.tsx=tsx --external:scripti
 
 **已提交**（本地，尚未 push 前请先 `git log` 确认）：原生修复 `57f00f9`、主体功能 `a9e7753`、
 iOS 基座校验 `95f537d`、忽略与工具 `180a6c2`、文档 `e6bc4cb`、iOS 四 Tab `d5ded04`。
-`dart analyze` 干净，`flutter test` 83 项全过。
+`dart analyze` 干净，`flutter test` 85 项全过。
 
-**已安装验证**：Android 真机 versionCode 2038（四页、底栏滑动、SAF 添加与预演、改名、Shizuku 状态、
+**已安装验证**：Android 真机 versionCode 2039（四页、底栏滑动、SAF 添加与预演、改名、Shizuku 状态、
 设置页「软件更新」实测联网返回「已是最新」）；macOS `/Applications/RimeUpdater.app` 已重装。
 iOS 脚本 1.5.0 加了「检查脚本更新」，只过了 esbuild。
 
