@@ -1021,7 +1021,14 @@ function MainView() {
           ) : null}
         </Section>
 
-        <Section header={<Text>更新</Text>}>
+        <Section
+          header={<Text>更新</Text>}
+          footer={
+            config.dirs.length === 0 ? (
+              <Text>还没有目录，下面的按钮大多是灰的。先到「目录」里添加一个 Rime 目录。</Text>
+            ) : undefined
+          }
+        >
           <Button
             title="一键更新（全部目录）"
             buttonStyle="borderedProminent"
@@ -1109,6 +1116,15 @@ function MainView() {
               </Menu>
             </HStack>
           ))}
+          {config.dirs.length === 0 ? (
+            <Button
+              title="添加目录"
+              systemImage="plus"
+              buttonStyle="borderedProminent"
+              action={pickFolder}
+              disabled={busy}
+            />
+          ) : null}
           <Menu
             label={
               <HStack>
