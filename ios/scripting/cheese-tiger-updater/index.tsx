@@ -641,11 +641,22 @@ function MainView() {
         continue
       }
       append(`[${dir.name}] 安装到 ${target}`)
-      const result = await installZip(zip, target, version, append)
-      append(`[${dir.name}] 更新 ${result.copied} 个文件`)
-      append(`[${dir.name}] 备份：${result.backupRoot}`)
-      installedVersions[dir.id] = version
-      await deployDir(dir)
+      // 单个目录失败不中断其它目录（基座不符时会抛错并提示改用完整包）。
+      try {
+        const result = await installZip(
+          zip,
+          target,
+          version,
+          append,
+          installedVersions[dir.id] ?? "",
+        )
+        append(`[${dir.name}] 更新 ${result.copied} 个文件`)
+        append(`[${dir.name}] 备份：${result.backupRoot}`)
+        installedVersions[dir.id] = version
+        await deployDir(dir)
+      } catch (error: any) {
+        append(`✗ ${dir.name}：${String(error?.message ?? error)}`)
+      }
     }
     updateConfig({ ...config, installedVersions })
     await refreshBackups()

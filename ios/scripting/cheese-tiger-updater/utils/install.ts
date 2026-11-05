@@ -276,12 +276,57 @@ export type InstallResult = {
   version: string
 }
 
+export type DeltaInfo = {
+  from: string
+  fullRequired: boolean
+}
+
+/// 读取增量包里的 DELTA.json。完整包没有这个文件，返回 null。
+export async function readDeltaInfo(
+  zipPath: string,
+): Promise<DeltaInfo | null> {
+  try {
+    return await withUnzipped(zipPath, async (source) => {
+      const file = Path.join(source, "DELTA.json")
+      if (!(await exists(file))) return null
+      const raw = await FM().readAsString(file)
+      if (!raw) return null
+      const parsed = JSON.parse(String(raw))
+      return {
+        from: String(parsed?.from ?? "").replace(/^v/i, "").trim(),
+        fullRequired: parsed?.full_required === true,
+      }
+    })
+  } catch {
+    return null
+  }
+}
+
 export async function installZip(
   zipPath: string,
   target: string,
   version: string,
   log: (line: string) => void,
+  installedVersion = "",
 ): Promise<InstallResult> {
+  // 增量包必须和已装版本对得上，否则会出现「版本号前进了、文件底子没跟上」
+  // 的坏安装（桌面端因此改成基座不符自动回退完整包）。
+  if (Path.basename(zipPath).endsWith("-update.zip")) {
+    const delta = await readDeltaInfo(zipPath)
+    if (delta) {
+      if (delta.fullRequired) {
+        throw new Error("该增量包要求完整包（模型有变更），请在更新来源里改用完整包")
+      }
+      const local = String(installedVersion ?? "").replace(/^v/i, "").trim()
+      if (delta.from && local !== delta.from) {
+        throw new Error(
+          `增量包基座 v${delta.from} 与已装版本 ${local || "未知"} 不一致，` +
+            `请在更新来源里改用完整包`,
+        )
+      }
+    }
+  }
+
   const dir = normalizePath(target)
   const backupRoot = Path.join(dir, BACKUP_DIR, stamp())
   const manifest: SnapshotManifest = {
