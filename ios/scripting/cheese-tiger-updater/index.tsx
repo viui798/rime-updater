@@ -29,6 +29,11 @@ import {
   type DirEntry,
 } from "./utils/config"
 import { deployInputMethod, type InputMethod } from "./utils/deploy"
+import {
+  checkScriptUpdate,
+  openScriptPage,
+  type SelfUpdateInfo,
+} from "./utils/self_update"
 import { list } from "./utils/fs"
 import {
   DEFAULT_REPO,
@@ -91,6 +96,8 @@ function MainView() {
   const [backups, setBackups] = useState<BackupEntry[]>([])
   const [cloudFiles, setCloudFiles] = useState<SyncFile[]>([])
   const [cloudDevices, setCloudDevices] = useState(0)
+  const [selfUpdate, setSelfUpdate] = useState<SelfUpdateInfo | null>(null)
+  const [checkingSelf, setCheckingSelf] = useState(false)
 
   const activeDir =
     config.dirs.find((dir) => dir.id === config.activeId) ?? config.dirs[0]
@@ -111,6 +118,60 @@ function MainView() {
 
   function append(line: string) {
     setLog((previous) => (previous ? `${previous}\n${line}` : line))
+  }
+
+  const selfUpdateLabel = selfUpdate
+    ? selfUpdate.hasUpdate
+      ? `有新版本 v${selfUpdate.latest}，当前 v${selfUpdate.current}`
+      : `已是最新（v${selfUpdate.current}）`
+    : ""
+
+  async function checkSelfUpdate() {
+    if (checkingSelf) return
+    setCheckingSelf(true)
+    try {
+      const info = await checkScriptUpdate()
+      setSelfUpdate(info)
+      append(
+        info.hasUpdate
+          ? `脚本有新版本：v${info.current} → v${info.latest}`
+          : `脚本已是最新 v${info.current}`,
+      )
+      const DialogApi: any = (globalThis as any).Dialog
+      if (info.hasUpdate) {
+        let go = true
+        if (DialogApi?.confirm) {
+          go = await DialogApi.confirm({
+            title: "发现新脚本版本",
+            message: `当前 v${info.current}，最新 v${info.latest}。\n\n在 Scripting 中打开脚本页面即可检查 / 重新导入，脚本本身也会每 24 小时自动检查一次。`,
+            confirmLabel: "打开脚本页面",
+            cancelLabel: "稍后",
+          })
+        }
+        if (go) await openScriptPage(info.url)
+        return
+      }
+      const message = `当前 v${info.current}，已是最新。`
+      if (DialogApi?.alert) {
+        await DialogApi.alert({ title: "检查脚本更新", message, buttonLabel: "好" })
+      } else if (DialogApi?.confirm) {
+        await DialogApi.confirm({
+          title: "检查脚本更新",
+          message,
+          confirmLabel: "好",
+          cancelLabel: "关闭",
+        })
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      append(`检查脚本更新失败：${message}`)
+      const DialogApi: any = (globalThis as any).Dialog
+      if (DialogApi?.alert) {
+        await DialogApi.alert({ title: "检查脚本更新失败", message, buttonLabel: "好" })
+      }
+    } finally {
+      setCheckingSelf(false)
+    }
   }
 
   function updateConfig(next: Config) {
@@ -1195,6 +1256,10 @@ function MainView() {
         onEditRepo={editRepo}
         onResetRepo={resetRepo}
         onPickAsset={pickAsset}
+        selfUpdateLabel={selfUpdateLabel}
+        onCheckSelfUpdate={() => {
+          void checkSelfUpdate()
+        }}
       />
     </NavigationStack>
   )

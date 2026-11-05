@@ -296,6 +296,8 @@ export function SettingsPage(props: {
   onEditRepo: () => void
   onResetRepo: () => void
   onPickAsset: (name: string) => void
+  selfUpdateLabel: string
+  onCheckSelfUpdate: () => void
 }) {
   const config = props.config
   return (
@@ -381,6 +383,17 @@ export function SettingsPage(props: {
       <Section header={<Text>关于</Text>}>
         <KvRow label="脚本版本" value={SCRIPT_VERSION} />
         <KvRow label="快照目录" value={BACKUP_DIR} />
+        <Button
+          title={props.busy ? "检查中…" : "检查脚本更新"}
+          systemImage="arrow.triangle.2.circlepath"
+          action={props.onCheckSelfUpdate}
+          disabled={props.busy}
+        />
+        {props.selfUpdateLabel ? (
+          <Text font="caption" foregroundStyle="secondaryLabel">
+            {props.selfUpdateLabel}
+          </Text>
+        ) : null}
       </Section>
     </List>
   )
