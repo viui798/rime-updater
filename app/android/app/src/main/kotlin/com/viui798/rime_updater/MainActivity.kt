@@ -37,8 +37,42 @@ class MainActivity : FlutterActivity() {
                     result.success(null)
                 }
                 "pickFile" -> pickFile(result)
+                "supportedAbis" -> result.success(Build.SUPPORTED_ABIS.toList())
+                "installApk" -> installApk(call.argument<String>("path"), result)
                 else -> result.notImplemented()
             }
+        }
+    }
+
+    /**
+     * 把下载好的 APK 交给系统安装器（不是静默安装）。
+     * 走 FileProvider 授予一次性读权限，Android 8+ 必须用它，否则会被拒绝。
+     */
+    private fun installApk(path: String?, result: MethodChannel.Result) {
+        if (path.isNullOrBlank()) {
+            result.success(false)
+            return
+        }
+        val file = java.io.File(path)
+        if (!file.exists()) {
+            result.success(false)
+            return
+        }
+        try {
+            val uri = androidx.core.content.FileProvider.getUriForFile(
+                this,
+                "$packageName.fileprovider",
+                file,
+            )
+            val intent = Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(uri, "application/vnd.android.package-archive")
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            startActivity(intent)
+            result.success(true)
+        } catch (error: Exception) {
+            result.success(false)
         }
     }
 

@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- 自身更新的 APK 落在缓存目录 app-update/ 下 -->
+    <cache-path name="cache" path="." />
+    <files-path name="files" path="." />
+</paths>

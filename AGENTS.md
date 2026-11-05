@@ -10,7 +10,7 @@
 1. 拉代码：`git clone https://github.com/viui798/rime-updater && cd rime-updater`
    （原开发机本地目录 `/Users/viui/Desktop/rime更新器`，方案仓库在 `/Users/viui/Desktop/芝士虎整`）
 2. 装 Flutter stable（原机器 3.47.9 / Dart 3.13.7），然后 `cd app && flutter pub get`
-3. 跑验证：`dart analyze`、`flutter test`，当前应为 **74 项全部通过**
+3. 跑验证：`dart analyze`、`flutter test`，当前应为 **83 项全部通过**
 4. 构建：
    - macOS：`DEVELOPER_DIR=/Applications/Xcode-16.2.0.app/Contents/Developer flutter build macos --release`
    - Windows：在 Windows 机器上 `flutter build windows --release`（需 VS「使用 C++ 的桌面开发」）
@@ -47,7 +47,10 @@ Android 的设置与缓存都在应用私有目录（`files/cheese-tiger/`），
 ## 2. 当前状态（2026-11-05）
 
 - `app/` 是主客户端，一套 Flutter 代码覆盖 macOS / Windows / Android；`ios/scripting/` 是独立脚本。
-- 版本 `0.10.0+36`（Android versionCode 2036 = 2000 + build number）。
+- 版本 `0.10.0+38`（Android versionCode 2038 = 2000 + build number）。
+- **软件自更新**：设置页有「软件更新」卡片，查 `viui798/rime-updater` 的 latest Release，
+  按平台挑包（macOS→dmg、Windows→Setup.exe、Android→按 ABI 的 apk）并交给系统安装器。
+  只做检查/下载/打开安装器，**不静默替换自身**。iOS 脚本同样有「检查脚本更新」。
 - 界面为 4 个页面：**更新器 / 同步 / 更多 / 设置**。窄屏底部悬浮导航（选中胶囊横向滑动），
   宽屏左侧栏，两者都切页；切页是整屏推屏且旧页立即退场（用户明确不要残影）。
   云同步与同步库合并进「同步」页两个分段；备份与回滚在「更多」。
@@ -74,11 +77,14 @@ Android 的设置与缓存都在应用私有目录（`files/cheese-tiger/`），
 | `app/lib/core/webdav_client.dart` / `sync_service.dart` | WebDAV 客户端与同步库逻辑 |
 | `app/lib/core/settings_store.dart` | 设置读写、缓存路径解析、旧缓存迁移 |
 | `app/lib/core/android_profiles.dart` | Shizuku 暂存区与 diff 提交（`withProfileDirectory`） |
+| `app/lib/core/app_update.dart` | 自身更新：查 Release、选包、下载、启动安装器 |
+| `app/lib/core/app_version.dart` | 当前版本常量，**必须与 pubspec 同步**（有测试校验） |
+| `app/lib/ui/app_update_card.dart` | 设置页的「软件更新」卡片 |
 | `app/lib/ui/home_nav.dart` | 底部导航（滑动胶囊） |
 | `app/lib/ui/sync_dialog.dart` / `sync_library_dialog.dart` / `settings_dialog.dart` | 可内嵌的页面组件 |
 | `app/android/.../ShizukuBridge.kt` / `RimeFileService.kt` | Shizuku 绑定与受限目录文件服务 |
-| `app/test/` | 9 个测试文件，74 项；改核心逻辑必须补测试 |
-| `ios/scripting/cheese-tiger-updater/` | iOS 脚本（1.4.0，四 Tab） |
+| `app/test/` | 10 个测试文件，83 项；改核心逻辑必须补测试 |
+| `ios/scripting/cheese-tiger-updater/` | iOS 脚本（1.5.0，四 Tab + 检查脚本更新） |
 | `.github/workflows/build.yml` | 推 `v*` tag 或手动触发：三平台构建，tag 时建 Release |
 | `update_desktop.py` / `gui_app.py` / `web/` / `build_app.py` | Python 参照实现与备用 Web 界面 |
 | `DESIGN.md` | 设计基准（雾白 + 淡紫），改界面前必读 |
@@ -108,13 +114,18 @@ Android 的设置与缓存都在应用私有目录（`files/cheese-tiger/`），
     **SAF 无法触发输入法部署**，写完必须由用户在元书内重新加载。
 14. **已是最新的设备直接跳过**：不再重复遍历文件与重复部署（重启输入法很扰民）。
 15. **单设备失败不中断整批**：记录后继续；状态栏汇总部分失败。
+16. **自更新只「下载 + 打开安装器」，不静默替换自身**：macOS 的 App 包在运行中被占用、
+    Windows 的 exe 被锁，静默替换必然失败或留下半成品。Android 走 FileProvider + ACTION_VIEW
+    交给系统安装器（需要 `REQUEST_INSTALL_PACKAGES`）。
+17. **版本号两处必须一致**：`lib/core/app_version.dart` 与 pubspec 的 `version:`，
+    `test/app_update_test.dart` 会读 pubspec 校验，改版本时两处一起改。
 
 ## 5. 验证清单（改代码后必跑）
 
 ```bash
 cd app
 dart analyze                      # 必须无问题
-flutter test                      # 当前 74 项，全绿
+flutter test                      # 当前 83 项，全绿
 
 # macOS
 DEVELOPER_DIR=/Applications/Xcode-16.2.0.app/Contents/Developer flutter build macos --release
@@ -188,7 +199,7 @@ npx --no-install esbuild index.tsx --bundle --loader:.tsx=tsx --external:scripti
    元书当前 `v0.3.2`，远端 `v0.3.26`，差 24 个版本会走完整包（341MB）——首次真实更新要盯住。
 2. **元书版本标记未写入**：文件内容其实已是 v0.3.26，但没有 `cheese-tiger-version.txt`，
    所以一直显示「可更新」。点一次「一键更新」即会写入并变为「已最新」。
-3. **iOS 1.4.0 未真机验证**：四 Tab 布局、增量基座校验都只过了 esbuild。
+3. **iOS 1.5.0 未真机验证**：四 Tab 布局、增量基座校验、检查脚本更新都只过了 esbuild。
 4. **Windows 构建**：需在 Windows 机器上跑；`jni`（来自 `saf_stream`）会作为 FFI 插件参与，
    其 CMake 对 JDK 是可选的，理论上不需要装 JDK。
 5. **云同步真实账号验证**：坚果云 / Nextcloud，注意 301/409 未处理。
@@ -207,11 +218,11 @@ npx --no-install esbuild index.tsx --bundle --loader:.tsx=tsx --external:scripti
 
 **已提交**（本地，尚未 push 前请先 `git log` 确认）：原生修复 `57f00f9`、主体功能 `a9e7753`、
 iOS 基座校验 `95f537d`、忽略与工具 `180a6c2`、文档 `e6bc4cb`、iOS 四 Tab `d5ded04`。
-`dart analyze` 干净，`flutter test` 74 项全过。
+`dart analyze` 干净，`flutter test` 83 项全过。
 
-**已安装验证**：Android 真机 versionCode 2036（四页、底栏滑动、SAF 添加与预演、改名、Shizuku 状态）；
-macOS `/Applications/RimeUpdater.app` 已重装并实跑；产物在 `dist/RimeUpdater-v0.10.0-build36-*`
-（被 git 忽略）。iOS 脚本 1.4.0 只过了 esbuild。
+**已安装验证**：Android 真机 versionCode 2038（四页、底栏滑动、SAF 添加与预演、改名、Shizuku 状态、
+设置页「软件更新」实测联网返回「已是最新」）；macOS `/Applications/RimeUpdater.app` 已重装。
+iOS 脚本 1.5.0 加了「检查脚本更新」，只过了 esbuild。
 
 **元书现状**：SAF 目录已加、授权可持久、预演通过（172 个文件全部「未变化」），
 但版本标记未写入，仍显示「可更新 v0.3.2」。**真实写入未验证**。

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../core/cache_manager.dart';
 import '../core/settings_store.dart';
 import '../models.dart';
+import 'app_update_card.dart';
 import 'dialog_size.dart';
 
 class SettingsDialog extends StatefulWidget {
@@ -220,6 +221,12 @@ class _SettingsDialogState extends State<SettingsDialog> {
                 ],
               ),
               const SizedBox(height: 8),
+              AppUpdateCard(
+                cacheDir: resolveCacheDir(widget.settings),
+                proxy: widget.settings.proxy,
+                token: widget.settings.token,
+              ),
+              const SizedBox(height: 12),
               Text(
                 '设置保存在 $settingsFilePath',
                 style: theme.textTheme.bodySmall?.copyWith(
