@@ -450,6 +450,44 @@ function MainView() {
     append(`已添加目录：${name}（${methodLabel(dir.inputMethod)}部署）`)
   }
 
+  /** 列出 Scripting 里已有的书签名称（拿不到就返回空集合）。 */
+  async function existingBookmarkNames(): Promise<Set<string>> {
+    const fm: any = (globalThis as any).FileManager
+    try {
+      const all: any = await fm?.getAllFileBookmarks?.()
+      if (Array.isArray(all)) {
+        return new Set(
+          all
+            .map((item: any) =>
+              typeof item === "string"
+                ? item
+                : String(item?.name ?? item?.bookmarkName ?? ""),
+            )
+            .filter(Boolean),
+        )
+      }
+      if (all && typeof all === "object") return new Set(Object.keys(all))
+    } catch {
+      // 拿不到就当作没有，后面仍会退到让用户自己命名
+    }
+    return new Set()
+  }
+
+  /**
+   * Scripting 的 `pickDirectoryBookmark` 在不传 `preferredName` 时，
+   * 会用「所选文件夹的名字」当书签默认名；一旦重名就弹改名框且确认键禁用，
+   * 用户会卡在那里（同名文件夹早就被之前的尝试占用过）。
+   * 这里主动给一个不重复的内部名，绕开那个对话框——界面上显示的名字
+   * 由我们自己的「目录名称」输入框决定，与书签名无关。
+   */
+  function freshBookmarkName(taken: Set<string>): string {
+    for (let i = 1; i <= 999; i += 1) {
+      const candidate = `RimeUpdater-${i}`
+      if (!taken.has(candidate)) return candidate
+    }
+    return `RimeUpdater-${Date.now()}`
+  }
+
   async function pickFolder() {
     const picker: any = (globalThis as any).DocumentPicker
     if (typeof picker?.pickDirectoryBookmark !== "function") {
@@ -457,15 +495,21 @@ function MainView() {
       return
     }
     try {
+      const taken = await existingBookmarkNames()
+      const options = {
+        preferredName: freshBookmarkName(taken),
+        initialDirectory: activeDir?.path || undefined,
+      }
       let result: any = null
       try {
-        result = await picker.pickDirectoryBookmark({
-          initialDirectory: activeDir?.path || undefined,
-        })
+        result = await picker.pickDirectoryBookmark(options)
       } catch {
         result = await picker.pickDirectoryBookmark()
       }
-      if (!result) return
+      if (!result) {
+        append("已取消选择目录。")
+        return
+      }
       const path = String(result.path ?? "").trim()
       if (!path) return
       await registerDir(path, String(result.bookmarkName ?? ""))
