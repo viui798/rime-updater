@@ -63,7 +63,10 @@ jobs:
           # Release 的 dist/* 只匹配顶层会漏掉——先归拢到一个平面目录
           New-Item -ItemType Directory -Force -Path build\win-release | Out-Null
           Copy-Item "build\*.zip" build\win-release\ -ErrorAction SilentlyContinue
-          Copy-Item "..\..\dist\*.exe" build\win-release\ -ErrorAction SilentlyContinue
+          # installer.iss 的 OutputDir=..\..\dist（相对 app\windows），产物在仓库根 dist/
+          $exe = Get-ChildItem "..\dist\*.exe" -ErrorAction SilentlyContinue
+          if (-not $exe) { throw "Inno Setup 安装包没有生成到仓库根 dist/" }
+          Copy-Item "..\dist\*.exe" build\win-release\ -Force
           Get-ChildItem build\win-release
       - uses: actions/upload-artifact@v4
         with:
