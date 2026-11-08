@@ -21,6 +21,7 @@ import type { ReleaseAsset } from "./github"
 
 const MAX_BACKUP_BYTES = 32 * 1024 * 1024
 const BACKUP_DIR = ".cheese-tiger-backup"
+const CACHE_DIR = "cheese-tiger-cache"
 
 /// 已装版本标记。桌面端写 `.cheese-tiger-version`，SAF 写 `cheese-tiger-version.txt`，
 /// 两种都读，兼容用户从别的端同步过来的目录。
@@ -145,16 +146,67 @@ export function inferVersionFromName(name: string): string {
   return hit ? hit[1] : ""
 }
 
+function cacheRoot(): string {
+  const fm = FM()
+  const base = String(fm?.documentsDirectory ?? fm?.temporaryDirectory ?? "")
+  return Path.join(base, CACHE_DIR)
+}
+
+function safeFileName(name: string): string {
+  return String(name ?? "asset.bin").replace(/[\\/:*?"<>|]/g, "_")
+}
+
+/// 只保留当前资产：与桌面端「缓存只留当前版本」一致。
+async function pruneCache(keep: string) {
+  const root = cacheRoot()
+  try {
+    for (const name of await list(root)) {
+      if (!name || name === keep) continue
+      await removeDirSafe(Path.join(root, name))
+    }
+  } catch {}
+}
+
+/// 已下载的包按「资产名 + 大小」复用，避免重复下载。
 export async function downloadAsset(
   asset: ReleaseAsset,
   log: (line: string) => void,
   onProgress?: (progress: DownloadProgress) => void,
 ): Promise<string> {
-  const dest = tempDownloadPath(asset.name)
-  await removePathLoose(dest)
+  const dir = cacheRoot()
+  await ensureDir(dir)
+  const dest = Path.join(dir, safeFileName(asset.name))
+  if (await exists(dest)) {
+    try {
+      const size = await getFileSize(FM(), dest)
+      const valid = asset.size > 0 ? size === asset.size : size > 0
+      if (valid) {
+        log(`复用缓存 ${asset.name}`)
+        return dest
+      }
+    } catch {}
+    await removePathLoose(dest)
+  }
   log(`下载 ${asset.name}…`)
   await downloadWithProgress(asset.url, dest, onProgress)
+  await pruneCache(safeFileName(asset.name))
   return dest
+}
+
+/// 删除全部下载缓存，返回删掉的文件数。
+export async function clearDownloadCache(): Promise<number> {
+  const root = cacheRoot()
+  let removed = 0
+  try {
+    if (await exists(root)) {
+      for (const name of await list(root)) {
+        if (!name) continue
+        await removeDirSafe(Path.join(root, name))
+        removed += 1
+      }
+    }
+  } catch {}
+  return removed
 }
 
 /// 增量包是 update/ 前缀；完整包可能是一个顶层目录或扁平结构。

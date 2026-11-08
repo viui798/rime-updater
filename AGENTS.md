@@ -84,7 +84,7 @@ Android 的设置与缓存都在应用私有目录（`files/cheese-tiger/`），
 | `app/lib/ui/sync_dialog.dart` / `sync_library_dialog.dart` / `settings_dialog.dart` | 可内嵌的页面组件 |
 | `app/android/.../ShizukuBridge.kt` / `RimeFileService.kt` | Shizuku 绑定与受限目录文件服务 |
 | `app/test/` | 10 个测试文件，85 项；改核心逻辑必须补测试 |
-| `ios/scripting/cheese-tiger-updater/` | iOS 脚本（1.5.0，四 Tab + 检查脚本更新） |
+| `ios/scripting/cheese-tiger-updater/` | iOS 脚本（1.5.4，四 Tab + 检查脚本更新 + 下载缓存） |
 | `.github/workflows/build.yml` | 推 `v*` tag 或手动触发：三平台构建，tag 时建 Release |
 | `update_desktop.py` / `gui_app.py` / `web/` / `build_app.py` | Python 参照实现与备用 Web 界面 |
 | `DESIGN.md` | 设计基准（雾白 + 淡紫），改界面前必读 |
@@ -165,6 +165,12 @@ npx --no-install esbuild index.tsx --bundle --loader:.tsx=tsx --external:scripti
 - 因此客户端三处都必须校验基座：`zip_installer.applyZip`、`saf_installer.applyZipToSaf`、
   iOS `installZip`。基座不符或 `full_required` → 要求完整包。
 - 词典编译要求同名 `.schema.yaml` 存在，否则日志报 `missing input schema` 并静默跳过。
+
+**下载缓存**
+- 桌面 / Android 复用缓存：资产名 + sha256（Release 带 `.sha256` 时）或大小一致才复用，
+  不重复下载；发新版后资产名变化会重新下载，缓存只保留当前版本（`cache_manager.pruneCache`）。
+- iOS 从 1.5.4 起也复用：包放在 `FileManager.documentsDirectory/cheese-tiger-cache/<资产名>`，
+  按资产名 + 大小校验，命中日志显示「复用缓存」；「设置 → 关于 → 清理下载缓存」可手动清空。
 
 **Android / SAF**
 - `pickDirectory` 必须显式传 `persistablePermission: true`，否则重启后 Permission Denial。

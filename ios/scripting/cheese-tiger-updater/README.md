@@ -68,6 +68,8 @@ Scripting 会读取 `script.json`，把 `index.tsx` 与 `utils/` 一起导入。
 3. 「一键更新（全部目录）」：按顺序安装到全部目录；单个目录用目录行「⋮ → 安装到此目录」。
 4. 安装时：
    - 自动去掉增量包的 `update/` 前缀；
+   - 下载过的包按「资产名 + 大小」复用，不会每次点更新都重新下载；缓存只保留当前资产，
+     可在「设置 → 关于 → 清理下载缓存」手动清掉；
    - 只复制方案文件，跳过 `user.yaml`、`installation.yaml`、`reverse_freq.txt`、
      `custom_phrase.txt`、`*.userdb`、`*.options.yaml`、`*.log`、`*.md`、`build/`、`sync/`；
    - 覆盖前把旧文件备份到 `<Rime 目录>/.cheese-tiger-backup/<时间戳>/`，

@@ -2,7 +2,7 @@ import { basename, storage } from "./common"
 import type { InputMethod } from "./deploy"
 import { DEFAULT_REPO, parseRepo } from "./github"
 
-export const SCRIPT_VERSION = "1.5.3"
+export const SCRIPT_VERSION = "1.5.4"
 
 const CONFIG_KEY = "cheese_tiger_ios_config"
 const PASSWORD_KEY = "cheese_tiger_webdav_password"

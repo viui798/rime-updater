@@ -43,6 +43,7 @@ import {
   type ReleaseInfo,
 } from "./utils/github"
 import {
+  clearDownloadCache,
   downloadAsset,
   inferVersionFromName,
   installZip,
@@ -641,6 +642,26 @@ function MainView() {
     if (input == null) return
     updateConfig({ ...config, token: String(input).trim() })
     append("Token 已保存")
+  }
+
+  async function clearCache() {
+    if (busy) return
+    const DialogApi: any = (globalThis as any).Dialog
+    if (DialogApi?.confirm) {
+      const ok = await DialogApi.confirm({
+        title: "清理下载缓存",
+        message: "删除已经下载过的方案包？下次更新会重新下载。",
+        confirmLabel: "清理",
+        cancelLabel: "取消",
+      })
+      if (!ok) return
+    }
+    try {
+      const removed = await clearDownloadCache()
+      append(`已清理下载缓存：${removed} 项`)
+    } catch (error: any) {
+      append(`✗ 清理缓存失败：${String(error?.message ?? error)}`)
+    }
   }
 
   async function editRepo() {
@@ -1347,6 +1368,9 @@ function MainView() {
         selfUpdateLabel={selfUpdateLabel}
         onCheckSelfUpdate={() => {
           void checkSelfUpdate()
+        }}
+        onClearCache={() => {
+          void clearCache()
         }}
       />
     </NavigationStack>

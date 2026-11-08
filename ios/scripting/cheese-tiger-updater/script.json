@@ -1,6 +1,6 @@
 {
   "name": "芝士虎整更新器",
-  "version": "1.5.3",
+  "version": "1.5.4",
   "description": "在 iPhone / iPad 上检查、预演、安装方案包到仓输入法或元书的 Rime 用户目录，支持备份回滚、本地 zip、换方案与 WebDAV 云同步",
   "author": {
     "name": "viui798",

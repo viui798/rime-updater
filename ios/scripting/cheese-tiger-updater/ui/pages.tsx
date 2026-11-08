@@ -298,6 +298,7 @@ export function SettingsPage(props: {
   onPickAsset: (name: string) => void
   selfUpdateLabel: string
   onCheckSelfUpdate: () => void
+  onClearCache: () => void
 }) {
   const config = props.config
   return (
@@ -383,6 +384,13 @@ export function SettingsPage(props: {
       <Section header={<Text>关于</Text>}>
         <KvRow label="脚本版本" value={SCRIPT_VERSION} />
         <KvRow label="快照目录" value={BACKUP_DIR} />
+        <Button
+          title="清理下载缓存"
+          systemImage="trash"
+          role="destructive"
+          action={props.onClearCache}
+          disabled={props.busy}
+        />
         <Button
           title={props.busy ? "检查中…" : "检查脚本更新"}
           systemImage="arrow.triangle.2.circlepath"
