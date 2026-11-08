@@ -36,10 +36,10 @@ void main() {
     });
 
     test('新版才提示更新', () {
+      expect(_release(['x.dmg'], version: '0.11.0').isNewer, isFalse);
       expect(_release(['x.dmg'], version: '0.10.0').isNewer, isFalse);
-      expect(_release(['x.dmg'], version: '0.9.9').isNewer, isFalse);
-      expect(_release(['x.dmg'], version: '0.10.1').isNewer, isTrue);
-      expect(_release(['x.dmg'], version: '0.11.0').isNewer, isTrue);
+      expect(_release(['x.dmg'], version: '0.11.1').isNewer, isTrue);
+      expect(_release(['x.dmg'], version: '0.12.0').isNewer, isTrue);
     });
   });
 

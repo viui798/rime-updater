@@ -5,8 +5,8 @@
 [Setup]
 AppId={{8F3C2A1B-7D4E-4B9A-9C6F-2E5D1A0B3C47}
 AppName=Rime 更新器
-AppVersion=0.10
-AppVerName=Rime 更新器 0.10
+AppVersion=0.11
+AppVerName=Rime 更新器 0.11
 AppPublisher=viui798
 AppPublisherURL=https://github.com/viui798/rime-updater
 AppSupportURL=https://github.com/viui798/rime-updater
@@ -17,7 +17,7 @@ PrivilegesRequired=lowest
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 OutputDir=..\..\dist
-OutputBaseFilename=RimeUpdater-v0.10-Setup
+OutputBaseFilename=RimeUpdater-v0.11-Setup
 SetupIconFile=runner\resources\app_icon.ico
 UninstallDisplayIcon={app}\rime_updater.exe
 Compression=lzma2/ultra64
@@ -26,11 +26,11 @@ WizardStyle=modern
 CloseApplications=yes
 RestartApplications=no
 LicenseFile=..\..\LICENSE
-VersionInfoVersion=0.10.0.0
+VersionInfoVersion=0.11.0.0
 VersionInfoCompany=viui798
 VersionInfoDescription=Rime 更新器 安装程序
 VersionInfoProductName=Rime 更新器
-VersionInfoProductVersion=0.10
+VersionInfoProductVersion=0.11
 
 [Languages]
 ; 简体中文 isl 收在仓库 languages/ 目录（choco 的 Inno Setup 不自带），相对路径本地与 CI 通用

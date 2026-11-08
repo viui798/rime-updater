@@ -47,7 +47,7 @@ Android 的设置与缓存都在应用私有目录（`files/cheese-tiger/`），
 ## 2. 当前状态（2026-11-05）
 
 - `app/` 是主客户端，一套 Flutter 代码覆盖 macOS / Windows / Android；`ios/scripting/` 是独立脚本。
-- 版本 `0.10.0+39`（Android versionCode 2039 = 2000 + build number）。
+- 版本 `0.11.0+40`（Android split 后 arm64 versionCode 2040 = 2000 + build number）。
 - **软件自更新**：设置页有「软件更新」卡片，查 `viui798/rime-updater` 的 latest Release，
   按平台挑包（macOS→dmg、Windows→Setup.exe、Android→按 ABI 的 apk）并交给系统安装器。
   只做检查/下载/打开安装器，**不静默替换自身**。iOS 脚本同样有「检查脚本更新」。
@@ -86,8 +86,8 @@ Android 的设置与缓存都在应用私有目录（`files/cheese-tiger/`），
 | `app/lib/ui/home_nav.dart` | 底部导航（滑动胶囊） |
 | `app/lib/ui/sync_dialog.dart` / `sync_library_dialog.dart` / `settings_dialog.dart` | 可内嵌的页面组件 |
 | `app/android/.../ShizukuBridge.kt` / `RimeFileService.kt` | Shizuku 绑定与受限目录文件服务 |
-| `app/test/` | 10 个测试文件，85 项；改核心逻辑必须补测试 |
-| `ios/scripting/cheese-tiger-updater/` | iOS 脚本（1.5.4，四 Tab + 检查脚本更新 + 下载缓存） |
+| `app/test/` | 13 个测试文件，92 项；改核心逻辑必须补测试 |
+| `ios/scripting/cheese-tiger-updater/` | iOS 脚本（0.11.0，四 Tab + 本地方案 + 检查脚本更新 + 下载缓存） |
 | `.github/workflows/build.yml` | 推 `v*` tag 或手动触发：三平台构建，tag 时建 Release |
 | `update_desktop.py` / `gui_app.py` / `web/` / `build_app.py` | Python 参照实现与备用 Web 界面 |
 | `DESIGN.md` | 设计基准（雾白 + 淡紫），改界面前必读 |
@@ -222,7 +222,7 @@ npx --no-install esbuild index.tsx --bundle --loader:.tsx=tsx --external:scripti
    元书当前 `v0.3.2`，远端 `v0.3.26`，差 24 个版本会走完整包（341MB）——首次真实更新要盯住。
 2. **元书版本标记未写入**：文件内容其实已是 v0.3.26，但没有 `cheese-tiger-version.txt`，
    所以一直显示「可更新」。点一次「一键更新」即会写入并变为「已最新」。
-3. **iOS 1.5.0 未真机验证**：四 Tab 布局、增量基座校验、检查脚本更新都只过了 esbuild。
+3. **iOS v0.11 未真机验证**：四 Tab 布局、本地方案、增量基座校验、检查脚本更新都只过了 esbuild。
 4. **Windows 构建**：需在 Windows 机器上跑；`jni`（来自 `saf_stream`）会作为 FFI 插件参与，
    其 CMake 对 JDK 是可选的，理论上不需要装 JDK。
 5. **云同步真实账号验证**：坚果云 / Nextcloud，注意 301/409 未处理。
@@ -237,13 +237,14 @@ npx --no-install esbuild index.tsx --bundle --loader:.tsx=tsx --external:scripti
 
 ## 9. 交接快照（每次会话结束**覆盖**这一节）
 
-> 2026-11-08 · `main` · 设备拖动排序、红色「可更新」、本地方案仓库
+> 2026-11-08 · `main` · v0.11：设备拖动排序、红色「可更新」、本地方案仓库、检查更新绕开 API 限流
 
-**本次新增**：设备列表长按三条杠拖动排序并持久化；「可更新」改红色；
+**本次新增**：设备列表三条杠拖动排序并持久化；「可更新」改红色；
 「更多 → 从本地 zip 安装」改为「本地方案」（存放位置可改、导入 zip、方案仓库单选、
-勾选后一键更新优先使用、仓库同版本不再重复下载）；清理缓存保留导入/勾选方案。
-`dart analyze` 干净，`flutter test` **90 项全过**；版本号未 bump，发版前记得改
-`pubspec.yaml` + `app_version.dart` + versionCode。
+勾选后一键更新优先使用、仓库同版本不再重复下载）；清理缓存保留导入/勾选方案；
+方案检查改走 GitHub 网页端（不再受匿名 API 限流）；iOS 脚本同步到 0.11
+（红色标识、本地方案、目录上移下移、缓存复用）。
+`dart analyze` 干净，`flutter test` **92 项全过**，esbuild 通过。
 
 **已提交**（本地，尚未 push 前请先 `git log` 确认）：原生修复 `57f00f9`、主体功能 `a9e7753`、
 iOS 基座校验 `95f537d`、忽略与工具 `180a6c2`、文档 `e6bc4cb`、iOS 四 Tab `d5ded04`。

@@ -146,22 +146,22 @@ export function inferVersionFromName(name: string): string {
   return hit ? hit[1] : ""
 }
 
-function cacheRoot(): string {
-  const fm = FM()
-  const base = String(fm?.documentsDirectory ?? fm?.temporaryDirectory ?? "")
-  return Path.join(base, CACHE_DIR)
+/// 方案仓库 / 下载缓存的目录，供「本地方案」页面读取。
+export function downloadCacheDir(): string {
+  return cacheRoot()
 }
 
 function safeFileName(name: string): string {
   return String(name ?? "asset.bin").replace(/[\\/:*?"<>|]/g, "_")
 }
 
-/// 只保留当前资产：与桌面端「缓存只留当前版本」一致。
-async function pruneCache(keep: string) {
+/// 只保留 [keepNames] 里的文件（当前版本 + 用户导入 + 勾选的方案）。
+export async function pruneDownloadCache(keepNames: string[]): Promise<void> {
   const root = cacheRoot()
+  const keep = new Set(keepNames.filter((name) => name && name !== ".DS_Store"))
   try {
     for (const name of await list(root)) {
-      if (!name || name === keep) continue
+      if (!name || keep.has(name) || name === ".scheme-index.json") continue
       await removeDirSafe(Path.join(root, name))
     }
   } catch {}
@@ -189,7 +189,6 @@ export async function downloadAsset(
   }
   log(`下载 ${asset.name}…`)
   await downloadWithProgress(asset.url, dest, onProgress)
-  await pruneCache(safeFileName(asset.name))
   return dest
 }
 

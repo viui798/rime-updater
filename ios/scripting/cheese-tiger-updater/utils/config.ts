@@ -2,7 +2,7 @@ import { basename, storage } from "./common"
 import type { InputMethod } from "./deploy"
 import { DEFAULT_REPO, parseRepo } from "./github"
 
-export const SCRIPT_VERSION = "1.5.4"
+export const SCRIPT_VERSION = "0.11.0"
 
 const CONFIG_KEY = "cheese_tiger_ios_config"
 const PASSWORD_KEY = "cheese_tiger_webdav_password"
@@ -28,6 +28,8 @@ export type Config = {
   syncUser: string
   deviceName: string
   deviceId: string
+  selectedScheme: string
+  importedSchemes: string[]
 }
 
 function normalizeMethod(value: any): InputMethod {
@@ -83,6 +85,10 @@ function normalizeConfig(data: any): Config {
     syncUser: String(data?.syncUser ?? ""),
     deviceName: String(data?.deviceName ?? "iPhone"),
     deviceId: String(data?.deviceId ?? ""),
+    selectedScheme: String(data?.selectedScheme ?? ""),
+    importedSchemes: Array.isArray(data?.importedSchemes)
+      ? data.importedSchemes.map(String).filter(Boolean)
+      : [],
   }
 }
 
@@ -106,6 +112,8 @@ export function loadConfig(): Config {
     syncUser: "",
     deviceName: "iPhone",
     deviceId: "",
+    selectedScheme: "",
+    importedSchemes: [],
   }
 }
 

@@ -45,15 +45,24 @@ import {
 import {
   clearDownloadCache,
   downloadAsset,
+  downloadCacheDir,
   inferVersionFromName,
   installZip,
   listBackups,
   planZip,
+  pruneDownloadCache,
   removeBackup,
   restoreBackup,
   stageLocalZip,
   type BackupEntry,
 } from "./utils/install"
+import {
+  importScheme,
+  listSchemes,
+  removeScheme,
+  selectedSchemePath,
+  type SchemeEntry,
+} from "./utils/scheme_repo"
 import { switchScheme, backupUserData } from "./utils/switch_scheme"
 import {
   deleteCloudFiles,
@@ -69,6 +78,7 @@ import {
   BackupsPage,
   CloudSyncPage,
   KvRow,
+  LocalSchemesPage,
   LogPage,
   SettingsPage,
   SwitchSchemePage,
@@ -99,6 +109,7 @@ function MainView() {
   const [cloudDevices, setCloudDevices] = useState(0)
   const [selfUpdate, setSelfUpdate] = useState<SelfUpdateInfo | null>(null)
   const [checkingSelf, setCheckingSelf] = useState(false)
+  const [schemes, setSchemes] = useState<SchemeEntry[]>([])
 
   const activeDir =
     config.dirs.find((dir) => dir.id === config.activeId) ?? config.dirs[0]
@@ -110,7 +121,7 @@ function MainView() {
     ? { text: "未检查", color: "secondaryLabel" }
     : installedVersion === remote.version
       ? { text: "已最新", color: "systemGreen" }
-      : { text: "可更新", color: "systemOrange" }
+      : { text: "可更新", color: "systemRed" }
   const progressText = busy
     ? percent > 0
       ? `下载 ${Math.round(percent * 100)}%`
@@ -257,6 +268,77 @@ function MainView() {
       setBackups([])
       append(`读取备份失败：${String(error?.message ?? error)}`)
     }
+  }
+
+  async function refreshSchemes() {
+    try {
+      setSchemes(await listSchemes(config.importedSchemes))
+    } catch (error: any) {
+      setSchemes([])
+      append(`读取方案仓库失败：${String(error?.message ?? error)}`)
+    }
+  }
+
+  async function selectedSchemeInfo(): Promise<{
+    path: string
+    name: string
+    version: string
+  } | null> {
+    const name = config.selectedScheme.trim()
+    if (!name) return null
+    const path = await selectedSchemePath(name)
+    if (!path) return null
+    return { path, name, version: inferVersionFromName(name) || "本地包" }
+  }
+
+  function selectScheme(entry: SchemeEntry) {
+    const next = config.selectedScheme === entry.name ? "" : entry.name
+    updateConfig({ ...config, selectedScheme: next })
+    append(next ? `已勾选优先方案：${entry.name}` : "已取消勾选优先方案")
+  }
+
+  async function importLocalScheme() {
+    if (busy) return
+    try {
+      const zip = await pickZip()
+      if (!zip) return
+      setBusy(true)
+      const name = await importScheme(zip.path)
+      updateConfig({
+        ...config,
+        importedSchemes: [...config.importedSchemes, name],
+        selectedScheme: name,
+      })
+      append(`已导入并勾选：${name}`)
+      await refreshSchemes()
+    } catch (error: any) {
+      append(`✗ 导入方案失败：${String(error?.message ?? error)}`)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function deleteScheme(entry: SchemeEntry) {
+    if (busy) return
+    const DialogApi: any = (globalThis as any).Dialog
+    if (DialogApi?.confirm) {
+      const ok = await DialogApi.confirm({
+        title: "删除方案包",
+        message: `从方案仓库删除 ${entry.name}？不会影响已装到设备上的方案。`,
+        confirmLabel: "删除",
+        cancelLabel: "取消",
+      })
+      if (!ok) return
+    }
+    await removeScheme(entry.name)
+    updateConfig({
+      ...config,
+      importedSchemes: config.importedSchemes.filter((name) => name !== entry.name),
+      selectedScheme:
+        config.selectedScheme === entry.name ? "" : config.selectedScheme,
+    })
+    append(`已删除方案包：${entry.name}`)
+    await refreshSchemes()
   }
 
   function syncClient(): WebDavClient {
@@ -611,6 +693,17 @@ function MainView() {
     append(`${dir.name} 部署方式：${methodLabel(method)}`)
   }
 
+  function moveDir(dir: DirEntry, delta: number) {
+    const index = config.dirs.findIndex((item) => item.id === dir.id)
+    const target = index + delta
+    if (index < 0 || target < 0 || target >= config.dirs.length) return
+    const dirs = [...config.dirs]
+    const [moved] = dirs.splice(index, 1)
+    dirs.splice(target, 0, moved)
+    updateConfig({ ...config, dirs })
+    append(`${dir.name} 已${delta < 0 ? "上移" : "下移"}`)
+  }
+
   async function removeDir(dir: DirEntry) {
     const DialogApi: any = (globalThis as any).Dialog
     if (DialogApi?.confirm) {
@@ -747,6 +840,27 @@ function MainView() {
     return release
   }
 
+  async function prepareInstallSource(): Promise<{
+    zip: string
+    version: string
+    assetName: string
+  }> {
+    const selected = await selectedSchemeInfo()
+    if (selected) {
+      append(`使用本地方案 ${selected.name}（v${selected.version}），不再请求 Release`)
+      return { zip: selected.path, version: selected.version, assetName: selected.name }
+    }
+    const release = remote ?? (await prepareRemote())
+    if (!remote) setRemote(release)
+    append(`准备安装 v${release.version} 到设备`)
+    const zip = await downloadAsset(release.chosen, append, (progress) => {
+      if (typeof progress.percent === "number") {
+        setPercent(Math.max(0, Math.min(1, progress.percent)))
+      }
+    })
+    return { zip, version: release.version, assetName: release.chosen.name }
+  }
+
   async function dryRun() {
     if (busy) return
     const targets = config.dirs.length > 1 ? config.dirs : activeDir ? [activeDir] : []
@@ -757,20 +871,15 @@ function MainView() {
     setBusy(true)
     setPercent(0)
     try {
-      const release = await prepareRemote()
-      const zip = await downloadAsset(release.chosen, append, (progress) => {
-        if (typeof progress.percent === "number") {
-          setPercent(Math.max(0, Math.min(1, progress.percent)))
-        }
-      })
+      const source = await prepareInstallSource()
       for (const dir of targets) {
         const target = await resolveTarget(dir)
         if (!target) {
           append(`✗ ${dir.name}：找不到目录`)
           continue
         }
-        append(`[${dir.name}] 预演 v${release.version} → ${target}`)
-        const plan = await planZip(zip, target)
+        append(`[${dir.name}] 预演 v${source.version} → ${target}`)
+        const plan = await planZip(source.zip, target)
         append(
           `[${dir.name}] 将更新 ${plan.updated} 个，新增 ${plan.added} 个，跳过个人数据 ${plan.skipped} 个`,
         )
@@ -827,15 +936,16 @@ function MainView() {
     setBusy(true)
     setPercent(0)
     try {
-      const release = remote ?? (await prepareRemote())
-      if (!remote) setRemote(release)
-      append(`准备安装 v${release.version} 到 ${targets.length} 个目录`)
-      const zip = await downloadAsset(release.chosen, append, (progress) => {
-        if (typeof progress.percent === "number") {
-          setPercent(Math.max(0, Math.min(1, progress.percent)))
-        }
-      })
-      await installToDirs(zip, release.version, targets)
+      const source = await prepareInstallSource()
+      append(`准备安装 v${source.version} 到 ${targets.length} 个目录`)
+      await installToDirs(source.zip, source.version, targets)
+      // 只保留当前使用的包、勾选的方案和导入的包，避免仓库无限堆积。
+      await pruneDownloadCache(
+        [source.assetName, config.selectedScheme, ...config.importedSchemes].filter(
+          (name) => !!name,
+        ),
+      )
+      await refreshSchemes()
     } catch (error: any) {
       append(`✗ ${String(error?.message ?? error)}`)
     } finally {
@@ -1056,6 +1166,7 @@ function MainView() {
     void refreshVersions()
     void refreshFiles()
     void refreshBackups()
+    void refreshSchemes()
     void refreshCloud()
     if (config.autoCheckOnLaunch) void check()
   }, [])
@@ -1178,6 +1289,20 @@ function MainView() {
                 <Button title="重命名" action={() => renameDir(dir)} disabled={busy} />
                 {config.dirs.length > 1 ? (
                   <Button
+                    title="上移"
+                    action={() => moveDir(dir, -1)}
+                    disabled={busy || config.dirs[0]?.id === dir.id}
+                  />
+                ) : null}
+                {config.dirs.length > 1 ? (
+                  <Button
+                    title="下移"
+                    action={() => moveDir(dir, 1)}
+                    disabled={busy || config.dirs[config.dirs.length - 1]?.id === dir.id}
+                  />
+                ) : null}
+                {config.dirs.length > 1 ? (
+                  <Button
                     title="安装到此目录"
                     action={() => void installToDir(dir)}
                     disabled={busy}
@@ -1267,6 +1392,36 @@ function MainView() {
         listStyle="insetGroup"
       >
         <Section header={<Text>数据与方案</Text>}>
+          <NavigationLink
+            destination={
+              <LocalSchemesPage
+                busy={busy}
+                dirLabel={downloadCacheDir()}
+                entries={schemes}
+                selected={config.selectedScheme}
+                onSelect={selectScheme}
+                onImport={() => {
+                  void importLocalScheme()
+                }}
+                onDelete={(entry) => {
+                  void deleteScheme(entry)
+                }}
+                onRefresh={() => {
+                  void refreshSchemes()
+                }}
+              />
+            }
+          >
+            <HStack>
+              <Text>本地方案</Text>
+              <Spacer />
+              <Text font="caption" foregroundStyle="secondaryLabel">
+                {config.selectedScheme
+                  ? `已选 ${config.selectedScheme}`
+                  : `${schemes.length} 个方案包`}
+              </Text>
+            </HStack>
+          </NavigationLink>
           <NavigationLink
             destination={
               <BackupsPage

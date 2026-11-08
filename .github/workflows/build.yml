@@ -23,7 +23,7 @@ jobs:
         working-directory: app
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
-          if [ -z "$VERSION" ] || [ "$VERSION" = "main" ]; then VERSION="0.10.0"; fi
+          if [ -z "$VERSION" ] || [ "$VERSION" = "main" ]; then VERSION="0.11.0"; fi
           ./tool/make_dmg.sh "$VERSION"
       - uses: actions/upload-artifact@v4
         with:
@@ -46,7 +46,7 @@ jobs:
         working-directory: app
         shell: pwsh
         run: |
-          $version = if ($env:GITHUB_REF_NAME -like "v*") { $env:GITHUB_REF_NAME.Substring(1) } else { "0.10.0" }
+          $version = if ($env:GITHUB_REF_NAME -like "v*") { $env:GITHUB_REF_NAME.Substring(1) } else { "0.11.0" }
           Compress-Archive -Path "build\windows\x64\runner\Release\*" -DestinationPath "build\RimeUpdater-v$version-windows.zip"
       - name: Build installer (Inno Setup)
         working-directory: app
@@ -107,22 +107,39 @@ jobs:
         with:
           files: dist/*
           body: |
-            # Rime 更新器 v0.10
+            # Rime 更新器 v0.11
 
             管理方案，让每台设备同步向前：检查版本 → 预演变更 → 一键更新 → 需要时回滚，
             个人数据（词库、自造词、开关记忆）永远不参与覆盖。默认对接
             [芝士虎整](https://github.com/viui798/viui-tiger-sentense)，也支持任意 GitHub
-            方案仓库与本地 zip 安装。
+            方案仓库、方案仓库管理（本地方案）与本地 zip。
+
+            ## 本次更新（v0.11）
+
+            - **设备拖动排序**：设备行末尾新增三条杠手柄，按住上下拖动即可调整顺序，顺序会保存，
+              下次启动保持不变。
+            - **「可更新」改红色**：落后于远端版本的设备用红色提示，和绿色「已最新」一眼区分。
+            - **本地方案（替代原「从本地 zip 安装」）**：点开是一个方案仓库，列出更新器下载过的
+              方案包和手动导入的 zip；可以修改存放位置、导入任意 zip、删掉不用的包。
+            - **勾选方案优先更新**：仓库里勾选一个方案后，一键更新直接用它，不再请求 Release 下载；
+              没有勾选时，仓库里同版本、同大小的包也会被直接复用，不会重复下载。
+            - **检查更新不再被 API 限流**：方案检查改走 GitHub 网页端
+              （`releases/latest` 302 + `expanded_assets`），匿名用户也能正常检查；
+              网页解析失败时才回退 API。
+            - **iOS 脚本同步到 v0.11**：同样有红色「可更新」、本地方案仓库（导入 / 勾选 / 删除）、
+              目录上移下移、下载缓存复用、云同步与换方案。
+            - 清理缓存现在只删下载的旧包，**导入与被勾选的方案会保留**。
 
             ## 下载与安装
 
             | 平台 | 文件 | 说明 |
             |---|---|---|
-            | macOS | `RimeUpdater-v0.10-macos.dmg` | 打开后把 App 拖进「应用程序」。首次打开被拦时：右键 →「打开」，或到「系统设置 → 隐私与安全性」点「仍要打开」（未签名公证） |
-            | Windows（安装版） | `RimeUpdater-v0.10-Setup.exe` | Inno Setup 用户级安装，无需管理员，带开始菜单与卸载项 |
-            | Windows（免安装） | `RimeUpdater-v0.10-windows.zip` | 解压即用，删文件夹即卸载。Windows 10/11 **x64**（ARM 可模拟运行） |
+            | macOS | `RimeUpdater-v0.11-macos.dmg` | 打开后把 App 拖进「应用程序」。首次打开被拦时：右键 →「打开」，或到「系统设置 → 隐私与安全性」点「仍要打开」（未签名公证） |
+            | Windows（安装版） | `RimeUpdater-v0.11-Setup.exe` | Inno Setup 用户级安装，无需管理员，带开始菜单与卸载项 |
+            | Windows（免安装） | `RimeUpdater-v0.11-windows.zip` | 解压即用，删文件夹即卸载。Windows 10/11 **x64**（ARM 可模拟运行） |
             | Android（通用） | `app-release.apk` | 所有架构通用，约 53MB |
             | Android（按架构） | `app-arm64-v8a-*.apk` 等 | 约 18MB，推荐；手机绝大多数为 arm64-v8a |
+            | iOS / iPadOS | 脚本包（不发安装包） | 在 [Scripting](https://scriptingapp.github.io/) 里导入 [cheese-tiger-updater](https://github.com/viui798/rime-updater/tree/main/ios/scripting/cheese-tiger-updater)，版本 v0.11 |
 
             Android 首次启动按提示授予「所有文件访问权限」；受限目录（`Android/data` 内）通过
             设备区的盾牌入口用 [Shizuku](https://shizuku.rikka.app/) 授权访问。更新完成后请在
@@ -132,7 +149,7 @@ jobs:
 
             - **多前端识别**：macOS 鼠须管 / 小企鹅 / 元书；Windows 小狼毫（注册表）、虎韵、
               `%APPDATA%` 深度扫描；Android 公共目录、Shizuku 受限目录与多方案容器；iOS / iPadOS
-              另提供 [Scripting 脚本](ios/scripting/cheese-tiger-updater/)（主页 + 子页面排版）
+              另提供 Scripting 脚本（四页布局、预演、换方案、云同步、本地方案）
             - **增量优先，基座校验**：优先下载 `*-update.zip`（几百 KB），增量基座与已装版本
               不符时自动改用完整包，避免「版本号前进了、文件底子没跟上」导致的更新后故障
             - **快照与回滚**：更新前自动快照（记录覆盖 / 新增 / 删除，超大模型只登记不复制），

@@ -15,6 +15,7 @@ import {
 import { SCRIPT_VERSION, type Config } from "../utils/config"
 import { DEFAULT_REPO, type ReleaseInfo } from "../utils/github"
 import { BACKUP_DIR, type BackupEntry } from "../utils/install"
+import type { SchemeEntry } from "../utils/scheme_repo"
 import type { SyncFile } from "../utils/sync_service"
 
 function KvRow(props: { label: string; value: string; color?: string }) {
@@ -446,6 +447,85 @@ export function LogPage(props: {
             {`目录内 ${props.filesCount} 项`}
           </Text>
         ) : null}
+      </Section>
+    </List>
+  )
+}
+
+/** 本地方案：仓库里的下载 / 导入包，单选一个优先更新。 */
+export function LocalSchemesPage(props: {
+  busy: boolean
+  dirLabel: string
+  entries: SchemeEntry[]
+  selected: string
+  onSelect: (entry: SchemeEntry) => void
+  onImport: () => void
+  onDelete: (entry: SchemeEntry) => void
+  onRefresh: () => void
+}) {
+  return (
+    <List
+      navigationTitle="本地方案"
+      navigationBarTitleDisplayMode="inline"
+      listStyle="insetGroup"
+    >
+      <Section
+        header={<Text>方案仓库</Text>}
+        footer={
+          <Text>
+            {"勾选一个方案后，一键更新会优先用它，不再请求 Release 下载；没有勾选时，仓库里同版本、同大小的包也会被直接复用。"}
+          </Text>
+        }
+      >
+        <Text font="caption" foregroundStyle="secondaryLabel">
+          {`方案存放位置：${props.dirLabel}`}
+        </Text>
+        <Button
+          title="导入方案"
+          systemImage="doc.badge.plus"
+          action={props.onImport}
+          disabled={props.busy}
+        />
+        <Button
+          title="刷新仓库"
+          systemImage="arrow.clockwise"
+          action={props.onRefresh}
+          disabled={props.busy}
+        />
+        {props.entries.length === 0 ? (
+          <Text font="caption" foregroundStyle="secondaryLabel">
+            还没有方案包。点「导入方案」选一个 zip，或先回更新器「检查更新」下载。
+          </Text>
+        ) : null}
+        {props.entries.map((entry) => (
+          <VStack key={entry.name} spacing={2} alignment="leading">
+            <HStack>
+              <Button
+                title={entry.name}
+                systemImage={
+                  props.selected === entry.name
+                    ? "checkmark.circle.fill"
+                    : "circle"
+                }
+                action={() => props.onSelect(entry)}
+                disabled={props.busy}
+              />
+              <Spacer />
+              <Button
+                title="删除"
+                systemImage="trash"
+                role="destructive"
+                action={() => props.onDelete(entry)}
+                disabled={props.busy}
+              />
+            </HStack>
+            <Text font="caption" foregroundStyle="secondaryLabel">
+              {`${entry.version ? `v${entry.version}` : "版本未知"} · ${
+                entry.imported ? "导入" : "下载"
+              }`}
+            </Text>
+          </VStack>
+        ))}
       </Section>
     </List>
   )
