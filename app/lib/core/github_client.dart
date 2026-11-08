@@ -23,6 +23,25 @@ String sha256File(String path) {
   return digest.toString();
 }
 
+/// 解析 GitHub `releases/expanded_assets/<tag>` 片段里的资产链接。
+/// 网页端不提供文件大小（调用方需要时用 HEAD 补），这里只保证名称与下载地址。
+List<Asset> parseExpandedAssets(String html) {
+  final pattern = RegExp(
+    r'href="([^"]*/releases/download/[^"]+)"',
+    caseSensitive: false,
+  );
+  final seen = <String>{};
+  final assets = <Asset>[];
+  for (final match in pattern.allMatches(html)) {
+    final href = match.group(1) ?? '';
+    final rawName = href.split('/').last;
+    final name = Uri.decodeComponent(rawName);
+    if (name.isEmpty || !seen.add(name)) continue;
+    assets.add(Asset(name: name, url: 'https://github.com$href', size: 0));
+  }
+  return assets;
+}
+
 class GithubClient {
   GithubClient({
     required this.settings,
@@ -69,6 +88,73 @@ class GithubClient {
       };
 
   Future<ReleaseInfo> fetchLatest() async {
+    // 优先走 GitHub 网页端：`/releases/latest` 302 拿 tag，再解析
+    // `expanded_assets` 片段。匿名 API 每小时只有 60 次，共用出口 IP 很容易被限流；
+    // 网页端不消耗配额，解析失败时才回退 API（需要 token 时仍可走 API）。
+    try {
+      final viaWeb = await _fetchViaWeb();
+      if (viaWeb != null) return viaWeb;
+    } catch (_) {
+      // 网页结构变化或网络问题时退回 API
+    }
+    return _fetchViaApi();
+  }
+
+  Future<ReleaseInfo?> _fetchViaWeb() async {
+    final latestRequest =
+        await client.getUrl(Uri.https('github.com', '/$repo/releases/latest'));
+    latestRequest.followRedirects = false;
+    latestRequest.headers.set('User-Agent', 'CheeseTigerUpdater/1.0');
+    if (token.isNotEmpty) {
+      latestRequest.headers.set('Authorization', 'Bearer $token');
+    }
+    final latestResponse = await latestRequest.close();
+    await latestResponse.drain<void>();
+    var location = latestResponse.headers.value('location') ?? '';
+    if (location.isEmpty) return null;
+    final tag = location.split('/').last;
+    if (tag.isEmpty) return null;
+
+    final pageRequest = await client.getUrl(Uri.https(
+      'github.com',
+      '/$repo/releases/expanded_assets/${Uri.encodeComponent(tag)}',
+    ));
+    pageRequest.headers.set('User-Agent', 'CheeseTigerUpdater/1.0');
+    final pageResponse = await pageRequest.close();
+    if (pageResponse.statusCode != 200) {
+      await pageResponse.drain<void>();
+      return null;
+    }
+    final html = await pageResponse.transform(utf8.decoder).join();
+    final assets = parseExpandedAssets(html);
+    if (assets.isEmpty) return null;
+
+    // 网页端没有文件大小；用 HEAD 补上，缓存复用仍然按「资产名 + 大小」判断。
+    final withSize = <Asset>[];
+    for (final asset in assets) {
+      final size = asset.name.endsWith('.zip') ? await _headSize(asset.url) : 0;
+      withSize.add(Asset(name: asset.name, url: asset.url, size: size));
+    }
+    log('  已通过网页端读取 Release（不消耗 API 配额）');
+    return _releaseFromAssets(tag, withSize);
+  }
+
+  Future<int> _headSize(String url) async {
+    try {
+      final request = await client.openUrl('HEAD', Uri.parse(url));
+      request.headers.set('User-Agent', 'CheeseTigerUpdater/1.0');
+      if (token.isNotEmpty) {
+        request.headers.set('Authorization', 'Bearer $token');
+      }
+      final response = await request.close();
+      await response.drain<void>();
+      return response.contentLength > 0 ? response.contentLength : 0;
+    } catch (_) {
+      return 0;
+    }
+  }
+
+  Future<ReleaseInfo> _fetchViaApi() async {
     final uri = Uri.https('api.github.com', '/repos/$repo/releases/latest');
     final request = await client.getUrl(uri);
     _baseHeaders.forEach(request.headers.set);
@@ -96,7 +182,7 @@ class GithubClient {
       throw UpdateException('Release 返回内容不是合法 JSON');
     }
 
-    final version = (decoded['tag_name'] as String? ?? '').replaceFirst(RegExp('^v'), '');
+    final tag = decoded['tag_name'] as String? ?? '';
     final assets = <Asset>[];
     for (final item in (decoded['assets'] as List? ?? const [])) {
       final map = item as Map<String, dynamic>;
@@ -108,8 +194,11 @@ class GithubClient {
         ),
       );
     }
-    if (assets.isEmpty) throw UpdateException('Release 里没有可用资产');
+    return _releaseFromAssets(tag, assets);
+  }
 
+  ReleaseInfo _releaseFromAssets(String tag, List<Asset> assets) {
+    if (assets.isEmpty) throw UpdateException('Release 里没有可用资产');
     Asset? delta;
     Asset? full;
     for (final asset in assets) {
@@ -124,7 +213,7 @@ class GithubClient {
     if (chosen == null) throw UpdateException('Release 里没有可用的 zip 资产');
 
     return ReleaseInfo(
-      version: version,
+      version: tag.replaceFirst(RegExp('^v'), ''),
       assets: assets,
       assetName: chosen.name,
       isDelta: chosen == delta,
