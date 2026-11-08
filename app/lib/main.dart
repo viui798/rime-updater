@@ -2245,18 +2245,21 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                             value: 'remove', child: Text('删除设备')),
                     ],
                   ),
-                  ReorderableDelayedDragStartListener(
+                  ReorderableDragStartListener(
                     index: index,
                     enabled: !_busy,
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 6, vertical: 10),
-                      child: Tooltip(
-                        message: '按住拖动排序',
-                        child: Icon(
-                          Icons.drag_handle_rounded,
-                          size: 20,
-                          color: theme.colorScheme.onSurfaceVariant,
+                    child: MouseRegion(
+                      cursor: SystemMouseCursors.grab,
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 12),
+                        child: Tooltip(
+                          message: '拖动排序',
+                          child: Icon(
+                            Icons.drag_handle_rounded,
+                            size: 20,
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
                         ),
                       ),
                     ),
