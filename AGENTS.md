@@ -72,6 +72,9 @@ Android 的设置与缓存都在应用私有目录（`files/cheese-tiger/`），
 | `app/lib/core/saf_client.dart` | SAF：选目录、持久授权、递归遍历、读写删、流式写入 |
 | `app/lib/core/saf_installer.dart` | SAF 安装：过滤 + 快照 + 版本标记 + 基座校验 |
 | `app/lib/core/cache_manager.dart` | 缓存统计、只保留最新、手动清理（只动本工具产出的文件） |
+| `app/lib/core/scheme_repo.dart` | 方案仓库：列包、导入 zip、来源索引、清理时保留导入/勾选 |
+| `app/lib/core/device_order.dart` | 设备显示顺序（设置里持久化，未知设备保持原顺序） |
+| `app/lib/ui/local_schemes_dialog.dart` | 「本地方案」：存放位置、导入、单选优先方案 |
 | `app/lib/core/scheme_switcher.dart` | 换方案：收集个人数据 → 备份 → 清理 → 恢复 |
 | `app/lib/core/deployer.dart` | 按前端部署（Squirrel / fcitx5 / Weasel / 虎韵 / Cobra） |
 | `app/lib/core/webdav_client.dart` / `sync_service.dart` | WebDAV 客户端与同步库逻辑 |
@@ -172,6 +175,15 @@ npx --no-install esbuild index.tsx --bundle --loader:.tsx=tsx --external:scripti
 - iOS 从 1.5.4 起也复用：包放在 `FileManager.documentsDirectory/cheese-tiger-cache/<资产名>`，
   按资产名 + 大小校验，命中日志显示「复用缓存」；「设置 → 关于 → 清理下载缓存」可手动清空。
 
+**方案仓库与设备顺序**
+- 方案仓库与下载缓存是同一目录（`cacheDir`）：GitHub 下载和用户导入的 zip 都放这里，
+  `.scheme-index.json` 只记录哪些是导入的。清理缓存时必须用 `schemeKeepNames`
+  保留导入与勾选的包，否则会把用户导入的方案一起删掉。
+- 「本地方案」里勾选一个 zip 后，一键更新直接用它（`_selectedSchemePackage`），
+  不再请求 Release；没有勾选时才走版本检查，命中同资产名的包会复用缓存。
+- 设备顺序存在 `deviceOrder`（identity：SAF 用 URI，其余用路径），
+  `applyDeviceOrder` 排序；拖动用 `ReorderableDelayedDragStartListener` + `drag_handle`。
+
 **Android / SAF**
 - `pickDirectory` 必须显式传 `persistablePermission: true`，否则重启后 Permission Denial。
 - 元书（Hamster）拒绝点开头的文件与目录：`.cheese-tiger-backup` 创建失败，
@@ -224,7 +236,13 @@ npx --no-install esbuild index.tsx --bundle --loader:.tsx=tsx --external:scripti
 
 ## 9. 交接快照（每次会话结束**覆盖**这一节）
 
-> 2026-11-05 · `main` · Android SAF（元书）接入、缓存管理、四页界面改版、iOS 四 Tab
+> 2026-11-08 · `main` · 设备拖动排序、红色「可更新」、本地方案仓库
+
+**本次新增**：设备列表长按三条杠拖动排序并持久化；「可更新」改红色；
+「更多 → 从本地 zip 安装」改为「本地方案」（存放位置可改、导入 zip、方案仓库单选、
+勾选后一键更新优先使用、仓库同版本不再重复下载）；清理缓存保留导入/勾选方案。
+`dart analyze` 干净，`flutter test` **90 项全过**；版本号未 bump，发版前记得改
+`pubspec.yaml` + `app_version.dart` + versionCode。
 
 **已提交**（本地，尚未 push 前请先 `git log` 确认）：原生修复 `57f00f9`、主体功能 `a9e7753`、
 iOS 基座校验 `95f537d`、忽略与工具 `180a6c2`、文档 `e6bc4cb`、iOS 四 Tab `d5ded04`。

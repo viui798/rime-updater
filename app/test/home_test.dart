@@ -1,9 +1,11 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:rime_updater/main.dart';
 import 'package:rime_updater/models.dart';
 import 'package:rime_updater/ui/app_theme.dart';
-import 'package:rime_updater/ui/local_zip_dialog.dart';
+import 'package:rime_updater/ui/local_schemes_dialog.dart';
 import 'package:rime_updater/ui/remote_scheme_dialog.dart';
 import 'package:rime_updater/ui/switch_scheme_dialog.dart';
 
@@ -74,13 +76,13 @@ void main() {
         await tester.tap(find.byKey(const ValueKey('home-nav-更多')));
         await tester.pumpAndSettle();
         expect(find.text('GitHub 方案'), findsOneWidget);
-        expect(find.text('从本地 zip 安装'), findsOneWidget);
+        expect(find.text('本地方案'), findsOneWidget);
         expect(tester.takeException(), isNull);
       } else {
         expect(find.text('方案管理'), findsOneWidget);
-        await tester.tap(find.text('从本地 zip 安装'));
+        await tester.tap(find.text('本地方案'));
         await tester.pumpAndSettle();
-        expect(find.text('开始安装'), findsOneWidget);
+        expect(find.text('导入方案'), findsOneWidget);
         expect(tester.takeException(), isNull);
       }
     });
@@ -133,7 +135,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('方案仓库'), findsOneWidget);
     expect(find.text('GitHub Token（可选）'), findsOneWidget);
-    expect(find.text('下载缓存目录'), findsOneWidget);
+    expect(find.text('方案存放位置'), findsOneWidget);
     expect(find.text('清理缓存'), findsOneWidget);
     expect(find.text('保存设置'), findsOneWidget);
     expect(tester.takeException(), isNull);
@@ -249,14 +251,20 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('本地 zip 安装弹窗可以打开', (tester) async {
+  testWidgets('本地方案弹窗可以打开', (tester) async {
+    final dir = Directory.systemTemp.createTempSync('scheme-dialog-');
+    addTearDown(() => dir.deleteSync(recursive: true));
     await tester.pumpWidget(
       MaterialApp(
         home: Builder(
           builder: (context) => ElevatedButton(
             onPressed: () => showDialog<void>(
               context: context,
-              builder: (_) => const LocalZipDialog(deviceCount: 2),
+              builder: (_) => LocalSchemesDialog(
+                settings: Settings(cacheDir: dir.path),
+                onSave: (_) {},
+                onImported: () {},
+              ),
             ),
             child: const Text('打开'),
           ),
@@ -267,9 +275,10 @@ void main() {
     await tester.tap(find.text('打开'));
     await tester.pumpAndSettle();
 
-    expect(find.text('从本地 zip 安装'), findsOneWidget);
-    expect(find.text('压缩包路径'), findsOneWidget);
-    expect(find.text('开始安装'), findsOneWidget);
+    expect(find.text('本地方案'), findsOneWidget);
+    expect(find.text('方案存放位置'), findsOneWidget);
+    expect(find.text('导入方案'), findsOneWidget);
+    expect(find.text('方案仓库'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 

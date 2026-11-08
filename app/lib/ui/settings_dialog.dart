@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../core/cache_manager.dart';
+import '../core/scheme_repo.dart';
 import '../core/settings_store.dart';
 import '../models.dart';
 import 'app_update_card.dart';
@@ -59,7 +60,12 @@ class _SettingsDialogState extends State<SettingsDialog> {
   }
 
   void _clearCache() {
-    final freed = clearCache(_effectiveCacheDir);
+    // 方案仓库和缓存是同一个目录：清理只删下载的旧包，用户导入与勾选的方案保留。
+    final effective = widget.settings.copyWith(cacheDir: _cacheDir.text.trim());
+    final freed = pruneCache(
+      _effectiveCacheDir,
+      keep: schemeKeepNames(effective, const {}),
+    );
     final summary = cacheSummary(_effectiveCacheDir);
     if (!mounted) return;
     setState(() {
@@ -102,6 +108,8 @@ class _SettingsDialogState extends State<SettingsDialog> {
         syncUser: widget.settings.syncUser,
         syncPassword: widget.settings.syncPassword,
         deviceName: widget.settings.deviceName,
+        deviceOrder: widget.settings.deviceOrder,
+        selectedScheme: widget.settings.selectedScheme,
     );
   }
 
@@ -178,9 +186,9 @@ class _SettingsDialogState extends State<SettingsDialog> {
                     controller: _cacheDir,
                     onChanged: (_) => _refreshCache(),
                     decoration: const InputDecoration(
-                      labelText: '下载缓存目录',
+                      labelText: '方案存放位置',
                       hintText: '留空使用系统默认位置',
-                      helperText: '安装包下载后存放的位置，一般不用改',
+                      helperText: '下载的方案包与导入的方案都放在这里，一般不用改',
                     ),
                   ),
                   const SizedBox(height: 6),

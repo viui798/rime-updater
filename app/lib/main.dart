@@ -8,18 +8,21 @@ import 'core/android_platform.dart';
 import 'core/cache_manager.dart';
 import 'core/android_profiles.dart';
 import 'core/deployer.dart';
+import 'core/device_order.dart';
 import 'core/github_client.dart';
 import 'core/local_package.dart';
 import 'core/package_preparer.dart';
 import 'core/rime_profile.dart' as rime;
 import 'core/saf_client.dart';
 import 'core/saf_installer.dart';
+import 'core/scheme_repo.dart';
 import 'core/scheme_switcher.dart';
 import 'core/settings_store.dart';
 import 'core/zip_installer.dart';
 import 'models.dart';
 import 'ui/app_theme.dart';
 import 'ui/home_nav.dart';
+import 'ui/local_schemes_dialog.dart';
 import 'ui/local_zip_dialog.dart';
 import 'ui/remote_scheme_dialog.dart';
 import 'ui/settings_dialog.dart';
@@ -363,6 +366,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     // 注意：applyCustomNames 在无自定义名称时会原样返回同一个 list，
     // 因此必须重新赋值而不是 clear + addAll（后者会把列表清空）。
     profiles = rime.applyCustomNames(profiles, _settings.customNames);
+    profiles = applyDeviceOrder(profiles, _settings.deviceOrder);
 
     for (final profile in profiles) {
       // 只对首次出现的设备默认勾选，用户取消后不会被重新勾上
@@ -817,8 +821,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       _setStatus('请先勾选至少一个设备', error: true);
       return;
     }
+    final selectedScheme = _selectedSchemePackage();
     if (!dryRun) {
-      final version = _remoteVersion.isEmpty ? '远端最新版本' : 'v$_remoteVersion';
+      final version = selectedScheme != null
+          ? '方案仓库的 ${selectedScheme.assetName}'
+          : (_remoteVersion.isEmpty ? '远端最新版本' : 'v$_remoteVersion');
       final confirmed = await showDialog<bool>(
         context: context,
         builder: (context) => AlertDialog(
@@ -852,18 +859,23 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         _logLine('复用最近 ${_releaseCacheTtl.inMinutes} 分钟内的检查结果'
             '（v${cached.version}），不再请求 GitHub');
       }
-      final package = await preparePackage(
-        settings: _settings,
-        // SAF 目录没有文件系统路径，必须走版本缓存，否则永远被当成「版本未知」
-        // 而白白下载几百 MB 完整包。
-        installedVersions: _profiles.map(_profileVersion).toList(),
-        profilePaths: _profiles.map((p) => p.path).toList(),
-        log: _logLine,
-        progress: (percent) {
-          if (mounted) setState(() => _progress = percent / 100);
-        },
-        release: cached,
-      );
+      final package = selectedScheme ??
+          await preparePackage(
+            settings: _settings,
+            // SAF 目录没有文件系统路径，必须走版本缓存，否则永远被当成「版本未知」
+            // 而白白下载几百 MB 完整包。
+            installedVersions: _profiles.map(_profileVersion).toList(),
+            profilePaths: _profiles.map((p) => p.path).toList(),
+            log: _logLine,
+            progress: (percent) {
+              if (mounted) setState(() => _progress = percent / 100);
+            },
+            release: cached,
+          );
+      if (selectedScheme != null) {
+        _logLine('使用方案仓库里勾选的 ${selectedScheme.assetName}'
+            '（v${selectedScheme.version}），不再请求 Release 下载');
+      }
       _logLine('目标版本：v${package.version}（${package.assetName}）');
       _logLine('准备更新 ${targets.length} 个用户目录'
           '（${dryRun ? '预演' : '正式'}）');
@@ -953,11 +965,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       // 更新成功后只保留当前版本用到的包，避免每次发版都多留一份
       // （完整包单个可达几百 MB）。
       if (!dryRun) {
-        final keep = <String>{
+        final keep = schemeKeepNames(_settings, <String>{
           package.assetName,
           '${package.assetName}.sha256',
           'MODEL.json',
-        };
+        });
         final freed = pruneCache(resolveCacheDir(_settings), keep: keep);
         if (freed > 0) {
           _logLine('  已清理旧缓存 '
@@ -1049,85 +1061,36 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     }
   }
 
-  Future<void> _installLocalZip() async {
+  Future<void> _openLocalSchemes() async {
     if (_busy) return;
-    final targets = _selected.toList();
-    if (targets.isEmpty) {
-      _setStatus('请先勾选至少一个设备', error: true);
-      return;
-    }
-
-    final options = await showDialog<LocalPackageOptions>(
+    await showDialog<void>(
       context: context,
-      builder: (context) => LocalZipDialog(deviceCount: targets.length),
+      builder: (context) => LocalSchemesDialog(
+        settings: _settings,
+        onSave: (next) {
+          saveSettings(next);
+          setState(() => _settings = next);
+        },
+        onImported: () => _setStatus('已导入方案包'),
+      ),
     );
-    if (options == null) return;
+    if (mounted) _setStatus('本地方案已更新');
+  }
 
-    setState(() {
-      _busy = true;
-      _progress = 0;
-      _status = '正在安装本地包…';
-      _statusError = false;
-      _log.clear();
-    });
-    _logLine('本地安装：${options.path}');
-
-    final picked = _profiles.where((p) => targets.contains(p.path)).toList();
-    try {
-      for (var index = 0; index < picked.length; index++) {
-        final profile = picked[index];
-        _logLine('');
-        _logLine('[${profile.label}] ${profile.path}');
-        final base = index * 100 ~/ picked.length;
-        final span = 100 ~/ picked.length;
-
-        final stats = await withProfileDirectory(
-            profile,
-            (local) => applyZip(
-                  zipPath: options.path,
-                  target: local.path,
-                  version: options.version,
-                  dryRun: false,
-                  snapshot: _settings.snapshot,
-                  log: _logLine,
-                  onFile: (done, total) {
-                    if (!mounted) return;
-                    setState(() {
-                      _progress =
-                          (base + (total > 0 ? span * done ~/ total : span)) /
-                              100;
-                    });
-                  },
-                ));
-        if (stats.backupStamp != null) {
-          _logLine('  已创建备份 ${stats.backupStamp}');
-        }
-        if (_settings.deploy) {
-          await deployProfile(
-            profile,
-            restart: _settings.restart,
-            log: _logLine,
-          );
-        }
-      }
-      if (!mounted) return;
-      setState(() => _progress = 1);
-      _setStatus('安装完成');
-      _refreshProfiles();
-      _refreshBackups();
-    } on AlreadyLatest catch (latest) {
-      // 全部设备已最新：没有下载任何包，直接结束。
-      if (!mounted) return;
-      setState(() => _progress = 1);
-      _setStatus('全部设备已是最新 v${latest.version}');
-      _refreshProfiles();
-      _refreshBackups();
-    } catch (error) {
-      _logLine('✗ $error');
-      _setStatus('$error', error: true);
-    } finally {
-      if (mounted) setState(() => _busy = false);
-    }
+  /// 方案仓库里勾选的包；没有勾选或文件已删时返回 null。
+  PreparedPackage? _selectedSchemePackage() {
+    final name = _settings.selectedScheme.trim();
+    if (name.isEmpty) return null;
+    final path = p.join(schemeRepoDir(_settings), name);
+    if (!File(path).existsSync()) return null;
+    final version = versionFor(path);
+    return PreparedPackage(
+      zipPath: path,
+      expectedSha: '',
+      version: version.isEmpty ? 'local' : version,
+      assetName: name,
+      isDelta: name.toLowerCase().endsWith('-update.zip'),
+    );
   }
 
   Future<void> _switchScheme() async {
@@ -1655,8 +1618,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         const SizedBox(height: 14),
         tile(Icons.cloud_download_outlined, 'GitHub 方案',
             '从任意 GitHub 仓库的 Release 安装', _installFromGithub),
-        tile(Icons.inventory_2_outlined, '从本地 zip 安装',
-            '选择本机方案包，按同一套规则覆盖', _installLocalZip),
+        tile(Icons.inventory_2_outlined, '本地方案',
+            '管理下载 / 导入的方案包，可指定优先更新', _openLocalSchemes),
         tile(Icons.swap_horiz_rounded, '换方案',
             '备份个人数据后整体替换为另一套方案', _switchScheme),
         if (Platform.isAndroid)
@@ -1736,7 +1699,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               child: Text('方案管理', style: theme.textTheme.labelSmall)),
           action(
               Icons.cloud_download_outlined, 'GitHub 方案', _installFromGithub),
-          action(Icons.inventory_2_outlined, '从本地 zip 安装', _installLocalZip),
+          action(Icons.inventory_2_outlined, '本地方案', _openLocalSchemes),
           action(Icons.swap_horiz_rounded, '换方案', _switchScheme),
           const SizedBox(height: 24),
           Padding(
@@ -2119,11 +2082,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                       ),
                     ),
                   )
-                : ListView.builder(
+                : ReorderableListView.builder(
+                    buildDefaultDragHandles: false,
                     padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
                     itemCount: _profiles.length,
-                    itemBuilder: (context, index) =>
-                        _buildDeviceRow(theme, _profiles[index]),
+                    onReorderItem: _reorderProfiles,
+                    itemBuilder: (context, index) => _buildDeviceRow(
+                        theme, _profiles[index], index),
                   ),
           ),
         ],
@@ -2138,11 +2103,27 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     });
   }
 
-  Widget _buildDeviceRow(ThemeData theme, Profile profile) {
+  void _reorderProfiles(int oldIndex, int newIndex) {
+    if (_busy) return;
+    setState(() {
+      final list = [..._profiles];
+      final moved = list.removeAt(oldIndex);
+      list.insert(newIndex, moved);
+      _profiles = list;
+    });
+    final updated = _settings.copyWith(
+      deviceOrder: _profiles.map((profile) => profile.identity).toList(),
+    );
+    saveSettings(updated);
+    setState(() => _settings = updated);
+  }
+
+  Widget _buildDeviceRow(ThemeData theme, Profile profile, int index) {
     final current = _profileVersion(profile);
     final selected = _selected.contains(profile.identity);
     final radius = BorderRadius.circular(12);
     return Padding(
+      key: ValueKey(profile.identity),
       padding: const EdgeInsets.only(bottom: 2),
       child: Material(
         color: selected
@@ -2264,6 +2245,22 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                             value: 'remove', child: Text('删除设备')),
                     ],
                   ),
+                  ReorderableDelayedDragStartListener(
+                    index: index,
+                    enabled: !_busy,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 6, vertical: 10),
+                      child: Tooltip(
+                        message: '按住拖动排序',
+                        child: Icon(
+                          Icons.drag_handle_rounded,
+                          size: 20,
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -2334,7 +2331,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           : AppColors.success;
     } else {
       label = '可更新';
-      color = theme.colorScheme.primary;
+      // 需要更新的设备用红色提示，和「已最新」的绿色明确区分。
+      color = theme.colorScheme.error;
     }
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2.5),

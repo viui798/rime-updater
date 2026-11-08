@@ -86,6 +86,8 @@ class Settings {
     this.syncUser = '',
     this.syncPassword = '',
     this.deviceName = '',
+    this.deviceOrder = const [],
+    this.selectedScheme = '',
   });
 
   final String repo;
@@ -106,6 +108,12 @@ class Settings {
   final String syncPassword;
   final String deviceName;
 
+  /// 设备显示顺序（存 identity，SAF 用 URI、其余用路径）。
+  final List<String> deviceOrder;
+
+  /// 方案仓库里勾选的文件名；一键更新时优先用它。
+  final String selectedScheme;
+
   Settings copyWith({
     String? repo,
     String? proxy,
@@ -122,6 +130,8 @@ class Settings {
     String? syncUser,
     String? syncPassword,
     String? deviceName,
+    List<String>? deviceOrder,
+    String? selectedScheme,
   }) {
     return Settings(
       repo: repo ?? this.repo,
@@ -139,6 +149,8 @@ class Settings {
       syncUser: syncUser ?? this.syncUser,
       syncPassword: syncPassword ?? this.syncPassword,
       deviceName: deviceName ?? this.deviceName,
+      deviceOrder: deviceOrder ?? this.deviceOrder,
+      selectedScheme: selectedScheme ?? this.selectedScheme,
     );
   }
 
@@ -164,6 +176,8 @@ class Settings {
       syncUser: json['sync_user'] as String? ?? '',
       syncPassword: json['sync_password'] as String? ?? '',
       deviceName: json['device_name'] as String? ?? '',
+      deviceOrder: (json['device_order'] as List? ?? const []).cast<String>(),
+      selectedScheme: json['selected_scheme'] as String? ?? '',
     );
   }
 
@@ -184,6 +198,8 @@ class Settings {
       'sync_user': syncUser,
       'sync_password': syncPassword,
       'device_name': deviceName,
+      'device_order': deviceOrder,
+      'selected_scheme': selectedScheme,
     };
   }
 }

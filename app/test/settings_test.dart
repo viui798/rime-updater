@@ -63,6 +63,20 @@ void main() {
     expect(decoded.copyWith(token: 't').safDirs, decoded.safDirs);
   });
 
+  test('设备顺序与勾选方案会随设置保存与读取', () {
+    final settings = Settings(
+      deviceOrder: ['/tmp/a', 'saf:content://x'],
+      selectedScheme: 'cheese-tiger-v0.3.27-update.zip',
+    );
+    final decoded = Settings.fromJson(
+      jsonDecode(jsonEncode(settings.toJson())) as Map<String, dynamic>,
+    );
+    expect(decoded.deviceOrder, settings.deviceOrder);
+    expect(decoded.selectedScheme, settings.selectedScheme);
+    expect(decoded.copyWith(deviceOrder: ['/tmp/b']).deviceOrder, ['/tmp/b']);
+    expect(decoded.copyWith(selectedScheme: '').selectedScheme, '');
+  });
+
   test('自定义名称会替换目录名作为显示名', () {
     final rimeDir = Directory.systemTemp.createTempSync('rime-named-');
     addTearDown(() => rimeDir.deleteSync(recursive: true));
