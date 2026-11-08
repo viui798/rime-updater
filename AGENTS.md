@@ -196,6 +196,10 @@ npx --no-install esbuild index.tsx --bundle --loader:.tsx=tsx --external:scripti
 - `files()` 扫描要跳过 `build/` 与 `sync/`。
 - 小米 / MIUI 会清 `cache/`，缓存必须放 `files/`。
 - Android 覆盖安装要求 versionCode 单调递增。
+- **Android 必须用固定签名**：`app/android/keystore/rime-updater.jks`（alias `rime-updater`，
+  密码 `rimeupdater2026`）。以前 release 用各环境各自的 debug keystore，本地与 CI 的 APK
+  签名不同，覆盖安装会报「与已安装应用签名不同（-7）」。改签名后旧安装需卸载一次；
+  之后本地构建与 CI 出的包都能互相覆盖。
 
 **设置与状态**
 - `Settings` 是手工逐字段重建的（`settings_dialog._collect()`），**加字段必须同步那里**，

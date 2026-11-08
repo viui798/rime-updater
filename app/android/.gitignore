@@ -12,3 +12,5 @@ GeneratedPluginRegistrant.java
 key.properties
 **/*.keystore
 **/*.jks
+# 发布签名固定提交，保证本地与 CI 的 APK 可以互相覆盖安装（自用分发）。
+!keystore/rime-updater.jks

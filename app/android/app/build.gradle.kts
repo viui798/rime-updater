@@ -4,6 +4,10 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
+// 固定的发布签名：本地构建与 CI 使用同一份 JKS，否则每个构建环境都会用各自的
+// debug keystore，覆盖安装时 Android 会报「与已安装应用签名不同」（-7）。
+val releaseKeystore = rootProject.file("keystore/rime-updater.jks")
+
 android {
     buildFeatures { aidl = true }
     namespace = "com.viui798.rime_updater"
@@ -31,12 +35,26 @@ android {
         versionName = flutter.versionName
     }
 
+    signingConfigs {
+        create("release") {
+            if (releaseKeystore.exists()) {
+                storeFile = releaseKeystore
+                storePassword = "rimeupdater2026"
+                keyAlias = "rime-updater"
+                keyPassword = "rimeupdater2026"
+            }
+        }
+    }
+
     buildTypes {
         debug { applicationIdSuffix = ".dev" }
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = if (releaseKeystore.exists()) {
+                signingConfigs.getByName("release")
+            } else {
+                // 没有固定 keystore 时仍可用 debug 签名构建，但覆盖安装会有签名冲突。
+                signingConfigs.getByName("debug")
+            }
         }
     }
 }
