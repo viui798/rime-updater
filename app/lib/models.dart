@@ -74,6 +74,7 @@ class Settings {
     this.repo = 'viui798/viui-tiger-sentense',
     this.proxy = '',
     this.token = '',
+    this.mirror = '',
     this.cacheDir = '',
     this.deploy = true,
     this.restart = false,
@@ -93,6 +94,10 @@ class Settings {
   final String repo;
   final String proxy;
   final String token;
+
+  /// 下载镜像前缀（可选）：填 `https://gh-proxy.com/` 之类，会把
+  /// `https://github.com/...` 的 Release 资产拼在前面下载。
+  final String mirror;
   final String cacheDir;
   final bool deploy;
   final bool restart;
@@ -118,6 +123,7 @@ class Settings {
     String? repo,
     String? proxy,
     String? token,
+    String? mirror,
     String? cacheDir,
     bool? deploy,
     bool? restart,
@@ -137,6 +143,7 @@ class Settings {
       repo: repo ?? this.repo,
       proxy: proxy ?? this.proxy,
       token: token ?? this.token,
+      mirror: mirror ?? this.mirror,
       cacheDir: cacheDir ?? this.cacheDir,
       deploy: deploy ?? this.deploy,
       restart: restart ?? this.restart,
@@ -159,6 +166,7 @@ class Settings {
       repo: json['repo'] as String? ?? 'viui798/viui-tiger-sentense',
       proxy: json['proxy'] as String? ?? '',
       token: json['token'] as String? ?? '',
+      mirror: json['mirror'] as String? ?? '',
       cacheDir: json['cache_dir'] as String? ?? '',
       deploy: json['deploy'] as bool? ?? true,
       restart: json['restart'] as bool? ?? false,
@@ -186,6 +194,7 @@ class Settings {
       'repo': repo,
       'proxy': proxy,
       'token': token,
+      'mirror': mirror,
       'cache_dir': cacheDir,
       'deploy': deploy,
       'restart': restart,

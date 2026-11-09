@@ -41,6 +41,7 @@ Future<PreparedPackage> preparePackage({
   required Settings settings,
   required List<String> installedVersions,
   required List<String> profilePaths,
+  bool seedUnknown = false,
   required void Function(String line) log,
   required void Function(int percent) progress,
   ReleaseInfo? release,
@@ -88,8 +89,11 @@ Future<PreparedPackage> preparePackage({
       final delta =
           await _downloadAsset(deltaAsset.first, info, client, log, progress,
               isDelta: true);
-      if (deltaBaseMismatch(delta.zipPath, installedVersions)) {
-        log('  增量包基座与已装版本不一致');
+      if (!deltaBaseUsable(delta.zipPath, installedVersions,
+          seedUnknown: seedUnknown)) {
+        final base = normalizeVersion(deltaBaseVersion(delta.zipPath));
+        log('  增量包基座 ${base.isEmpty ? '未知' : 'v$base'} 与本批设备不一致'
+            '${seedUnknown ? '（无法从现有设备铺底）' : ''}');
         return await _pickHeavy(modelOk, nomodelAsset, fullAsset, info, client,
             log, progress);
       }

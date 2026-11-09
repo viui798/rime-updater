@@ -86,8 +86,8 @@ Android 的设置与缓存都在应用私有目录（`files/cheese-tiger/`），
 | `app/lib/ui/home_nav.dart` | 底部导航（滑动胶囊） |
 | `app/lib/ui/sync_dialog.dart` / `sync_library_dialog.dart` / `settings_dialog.dart` | 可内嵌的页面组件 |
 | `app/android/.../ShizukuBridge.kt` / `RimeFileService.kt` | Shizuku 绑定与受限目录文件服务 |
-| `app/test/` | 13 个测试文件，92 项；改核心逻辑必须补测试 |
-| `ios/scripting/cheese-tiger-updater/` | iOS 脚本（0.11.0，四 Tab + 本地方案 + 检查脚本更新 + 下载缓存） |
+| `app/test/` | 13 个测试文件，97 项；改核心逻辑必须补测试 |
+| `ios/scripting/cheese-tiger-updater/` | iOS 脚本（0.12.0，四 Tab + 本地方案 + 铺底 / 克隆 + 镜像与 API 兜底） |
 | `.github/workflows/build.yml` | 推 `v*` tag 或手动触发：三平台构建，tag 时建 Release |
 | `update_desktop.py` / `gui_app.py` / `web/` / `build_app.py` | Python 参照实现与备用 Web 界面 |
 | `DESIGN.md` | 设计基准（雾白 + 淡紫），改界面前必读 |
@@ -168,7 +168,21 @@ npx --no-install esbuild index.tsx --bundle --loader:.tsx=tsx --external:scripti
   根治方向：方案仓库改为「相对最老支持基线出增量」或 DELTA.json 带必需文件清单。
 - 因此客户端三处都必须校验基座：`zip_installer.applyZip`、`saf_installer.applyZipToSaf`、
   iOS `installZip`。基座不符或 `full_required` → 要求完整包。
+- **版本未知目录（新装 / 没写标记）不能直接套增量**。桌面端做法（`zip_installer.mirrorProfile`
+  + `main._runUpdate`）：按本批设备版本判断增量是否可用——所有已知设备都等于 `DELTA.json.from`
+  时才用增量，且先从不含用户数据的方案文件把未知目录铺底到该基座；否则改用完整包，装完第一台
+  （或选一台「已最新」设备）后，再把方案文件本地克隆给其它未知目录。
+  只复制 `shouldCopy` 允许的文件，`user.yaml` / `*.userdb` / `*.options.yaml` / 按键统计一律不动。
+- iOS 0.12.0 已对齐：`install.ts: mirrorProfile`、`index.tsx: prepareInstallSource / installToDirs`；
+  桌面「可更新」计数与状态标签把版本未知也算作可更新。
 - 词典编译要求同名 `.schema.yaml` 存在，否则日志报 `missing input schema` 并静默跳过。
+
+**GitHub 下载线路**
+- `github.com/.../releases/download/...` 会被网络设备返回 **504**（zip 与 MODEL.json 都一样），
+  而同一时刻 `api.github.com/repos/.../releases/assets/<id>` 能正常下完（实测 6.8MB）。
+  桌面端 `GithubClient.downloadTo` 的尝试顺序：镜像（设置项 `mirror`）→ 直链 → API 资产地址；
+  iOS `downloadAsset` 同样三步，镜像在「设置 → 更新来源」。
+- 第三方镜像（gh-proxy 等）对小文件可用、对大包同样 504，只能当第一顺位尝试，不能当唯一来源。
 
 **下载缓存**
 - 桌面 / Android 复用缓存：资产名 + sha256（Release 带 `.sha256` 时）或大小一致才复用，
@@ -214,6 +228,17 @@ npx --no-install esbuild index.tsx --bundle --loader:.tsx=tsx --external:scripti
 - 元书有官方 CLI：`Cobra deploy` / `sync` / `print`（`print` 可探测权威用户目录）。
 - 小狼毫部署要区分服务重启与部署两步；`WeaselServer` 的 workingDirectory 必须是其安装目录，
   否则卸载后残留空文件夹。
+- Windows 的「部署后重启前端」开关目前无效：`deploy_profile` 的 Windows 分支不读 `restart`
+  （只有 macOS fcitx5 / cobra 用），设置页文案与实际不符，修复前别依赖它。
+- 虎韵部署器不重启服务：实测部署前后 `Tigrime.Server` 的 PID 与启动时间不变，只返回
+  `{"deployed":true,"server_resumed":true}`。需要重启时按 `install.json` 的 `generation`
+  拉起对应版本目录（不要把已退役版本的服务手动拉起来）。
+- Rime 按 mtime 跳过重建：源文件时间比 `build/` 产物旧时（手动复制、保留时间戳的解压、
+  恢复备份），部署会「成功但不编译」。回滚实测需删除 `build/tiger_sentence.schema.yaml`
+  并 touch 源文件才会重编。
+- 判断部署是否真的生效：看 `build/*.schema.yaml` 的 mtime 是否晚于本次部署、是否包含新方案
+  引用（如 `input_statistics_proc`、`dictionary: tiger_full`），以及服务 PID 是否变化。
+- 服务重启后，已存在的输入会话仍持有旧 engine，需要切换焦点 / 重新点输入框。
 
 **界面**
 - 用户对动效有明确偏好：底栏是「滑动胶囊」而不是按压缩放；切页是**整屏推屏**且

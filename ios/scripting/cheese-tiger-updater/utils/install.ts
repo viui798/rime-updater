@@ -18,6 +18,7 @@ import {
   removeDirSafe,
 } from "./fs"
 import type { ReleaseAsset } from "./github"
+import { applyMirror, fetchAssetApiUrl } from "./github"
 
 const MAX_BACKUP_BYTES = 32 * 1024 * 1024
 const BACKUP_DIR = ".cheese-tiger-backup"
@@ -168,10 +169,13 @@ export async function pruneDownloadCache(keepNames: string[]): Promise<void> {
 }
 
 /// 已下载的包按「资产名 + 大小」复用，避免重复下载。
+/// 下载顺序：镜像（若配置）→ GitHub 直链 → API 资产地址兜底，
+/// 直链被 504 / 超时掐断时仍有机会拿到包。
 export async function downloadAsset(
   asset: ReleaseAsset,
   log: (line: string) => void,
   onProgress?: (progress: DownloadProgress) => void,
+  opts: { mirror?: string; token?: string; repo?: string } = {},
 ): Promise<string> {
   const dir = cacheRoot()
   await ensureDir(dir)
@@ -188,8 +192,36 @@ export async function downloadAsset(
     await removePathLoose(dest)
   }
   log(`下载 ${asset.name}…`)
-  await downloadWithProgress(asset.url, dest, onProgress)
-  return dest
+
+  const mirrored = applyMirror(opts.mirror, asset.url)
+  const candidates = mirrored !== asset.url ? [mirrored, asset.url] : [asset.url]
+  let lastError: any = null
+  for (let i = 0; i < candidates.length; i++) {
+    try {
+      if (i === 0 && candidates.length > 1) log(`  使用下载镜像 ${opts.mirror}`)
+      await downloadWithProgress(candidates[i], dest, onProgress)
+      return dest
+    } catch (error: any) {
+      lastError = error
+      log(`  ! 下载失败：${String(error?.message ?? error)}`)
+      if (i < candidates.length - 1) log("  尝试下一个下载地址…")
+      await removePathLoose(dest)
+    }
+  }
+
+  const apiUrl = await fetchAssetApiUrl(asset.url, opts.token, opts.repo)
+  if (apiUrl) {
+    log("  改用 GitHub API 资产地址重试")
+    try {
+      await downloadWithProgress(apiUrl, dest, onProgress)
+      return dest
+    } catch (error: any) {
+      lastError = error
+      await removePathLoose(dest)
+      log(`  ! 下载失败：${String(error?.message ?? error)}`)
+    }
+  }
+  throw lastError ?? new Error("下载失败")
 }
 
 /// 删除全部下载缓存，返回删掉的文件数。
@@ -454,6 +486,78 @@ export async function installZip(
   await writeInstalledVersion(dir, version)
 
   return { copied, skipped, backupRoot, version }
+}
+
+/// 跨目录铺底 / 克隆：把 source 目录里的「方案文件」复制到 target。
+///
+/// 用途一：版本未知的目录先铺到增量包基座，再套增量；
+/// 用途二：完整包更新完一台后，把它整套方案文件本地克隆给其它未知目录。
+/// 个人数据（词库 / user.yaml / 开关记忆 / 日志）一律不复制；
+/// 完成后按 [version] 写入版本标记。
+export async function mirrorProfile(
+  source: string,
+  target: string,
+  version: string,
+  log: (line: string) => void,
+): Promise<{ copied: number; skipped: number }> {
+  const src = normalizePath(source)
+  const dir = normalizePath(target)
+  if (src === dir) throw new Error("铺底源不能是目标目录自己")
+  if (!(await exists(src))) throw new Error(`铺底源目录不存在：${src}`)
+
+  const backupRoot = Path.join(dir, BACKUP_DIR, stamp())
+  const manifest: SnapshotManifest = {
+    created: stamp(),
+    version,
+    added: [],
+    overwritten: [],
+  }
+  let copied = 0
+  let skipped = 0
+
+  await walkFiles(
+    src,
+    src,
+    async (rel, file) => {
+      if (VERSION_MARKERS.includes(rel)) return
+      const dst = Path.join(dir, rel)
+      if (await exists(dst)) {
+        // 大小相同视为同一份方案文件，跳过（避免对 400MB 模型重复读写）。
+        try {
+          const incoming = await getFileSize(FM(), file)
+          const existing = await getFileSize(FM(), dst)
+          if (incoming === existing) {
+            skipped += 1
+            return
+          }
+          if (existing <= MAX_BACKUP_BYTES) {
+            const backup = Path.join(backupRoot, rel)
+            await ensureDir(Path.dirname(backup))
+            await copy(dst, backup)
+            manifest.overwritten.push(rel)
+          } else {
+            log(`  ! ${rel} 体积较大，未备份`)
+          }
+          try {
+            await FM().remove(dst)
+          } catch {}
+        } catch {}
+      } else {
+        manifest.added.push(rel)
+      }
+      await ensureDir(Path.dirname(dst))
+      await copy(file, dst)
+      copied += 1
+      log(`  同步 ${rel}`)
+    },
+    () => {
+      skipped += 1
+    },
+  )
+
+  await writeManifest(backupRoot, manifest)
+  await writeInstalledVersion(dir, version)
+  return { copied, skipped }
 }
 
 /// 把选中的本地 zip 拷到临时目录，避免 iCloud 未下载的路径无法直接解压。

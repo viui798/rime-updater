@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:path/path.dart' as p;
 import 'package:rime_updater/core/android_profiles.dart';
 import 'package:rime_updater/core/rime_profile.dart';
 
@@ -44,8 +45,10 @@ void main() {
       final unrelated = Directory('${root.path}/Downloads')..createSync();
       File('${unrelated.path}/tiger.schema.yaml')
           .writeAsStringSync('schema: {}');
-      expect(detectAndroidPublicProfiles(root.path).map((item) => item.path),
-          [user.path]);
+      expect(
+          detectAndroidPublicProfiles(root.path)
+              .map((item) => p.normalize(item.path)),
+          [p.normalize(user.path)]);
     } finally {
       await root.delete(recursive: true);
     }
@@ -64,10 +67,10 @@ void main() {
       }
       final profiles = detectAndroidPublicProfiles(root.path);
       expect(profiles, hasLength(3));
-      expect(profiles.map((item) => item.path).toSet(), {
-        '${root.path}/Android/rime',
-        '${root.path}/Documents/rime/schemas/芝士虎整',
-        '${root.path}/Documents/rime/schemas/另一个方案',
+      expect(profiles.map((item) => p.normalize(item.path)).toSet(), {
+        p.normalize('${root.path}/Android/rime'),
+        p.normalize('${root.path}/Documents/rime/schemas/芝士虎整'),
+        p.normalize('${root.path}/Documents/rime/schemas/另一个方案'),
       });
       // Documents/rime 只属于中文输入法2，不能标成与元书共用。
       expect(

@@ -295,6 +295,7 @@ export function SettingsPage(props: {
   onUpdate: (next: Config) => void
   onEditToken: () => void
   onEditRepo: () => void
+  onEditMirror: () => void
   onResetRepo: () => void
   onPickAsset: (name: string) => void
   selfUpdateLabel: string
@@ -308,7 +309,15 @@ export function SettingsPage(props: {
       navigationBarTitleDisplayMode="inline"
       listStyle="insetGroup"
     >
-      <Section header={<Text>更新来源</Text>}>
+      <Section
+        header={<Text>更新来源</Text>}
+        footer={
+          <Text>
+            下载镜像用于 GitHub 直链被 504 / 超时时加速；留空则只用直链，失败会自动改用
+            GitHub API 资产地址。
+          </Text>
+        }
+      >
         <KvRow label="仓库" value={config.repo} />
         <HStack spacing={8}>
           <Button title="修改仓库" action={props.onEditRepo} disabled={props.busy} />
@@ -319,6 +328,16 @@ export function SettingsPage(props: {
               props.busy ||
               (config.repo === DEFAULT_REPO && !config.assetName)
             }
+          />
+        </HStack>
+        <KvRow label="下载镜像" value={config.mirror || "未设置"} />
+        <HStack spacing={8}>
+          <Button title="设置镜像" action={props.onEditMirror} disabled={props.busy} />
+          <Button
+            title="清除镜像"
+            role="destructive"
+            action={() => props.onUpdate({ ...config, mirror: "" })}
+            disabled={!config.mirror}
           />
         </HStack>
       </Section>

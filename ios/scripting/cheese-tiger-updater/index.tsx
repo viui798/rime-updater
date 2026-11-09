@@ -49,8 +49,10 @@ import {
   inferVersionFromName,
   installZip,
   listBackups,
+  mirrorProfile,
   planZip,
   pruneDownloadCache,
+  readDeltaInfo,
   removeBackup,
   restoreBackup,
   stageLocalZip,
@@ -757,6 +759,23 @@ function MainView() {
     }
   }
 
+  async function editMirror() {
+    const DialogApi: any = (globalThis as any).Dialog
+    if (!DialogApi?.prompt) return
+    const input = await DialogApi.prompt({
+      title: "下载镜像",
+      message:
+        "可选。填镜像前缀（如 https://gh-proxy.com/），会把 GitHub 下载地址拼在它后面；" +
+        "留空表示只用直链。直链失败时脚本会自动改用 GitHub API 资产地址。",
+      defaultValue: config.mirror,
+      confirmLabel: "保存",
+      cancelLabel: "取消",
+    })
+    if (input == null) return
+    updateConfig({ ...config, mirror: String(input).trim() })
+    append(config.mirror ? "下载镜像已更新" : "下载镜像已设置")
+  }
+
   async function editRepo() {
     const DialogApi: any = (globalThis as any).Dialog
     if (!DialogApi?.prompt) return
@@ -840,7 +859,7 @@ function MainView() {
     return release
   }
 
-  async function prepareInstallSource(): Promise<{
+  async function prepareInstallSource(targets?: DirEntry[]): Promise<{
     zip: string
     version: string
     assetName: string
@@ -853,12 +872,52 @@ function MainView() {
     const release = remote ?? (await prepareRemote())
     if (!remote) setRemote(release)
     append(`准备安装 v${release.version} 到设备`)
-    const zip = await downloadAsset(release.chosen, append, (progress) => {
-      if (typeof progress.percent === "number") {
-        setPercent(Math.max(0, Math.min(1, progress.percent)))
+    const progress = (p: any) => {
+      if (typeof p.percent === "number") {
+        setPercent(Math.max(0, Math.min(1, p.percent)))
       }
-    })
-    return { zip, version: release.version, assetName: release.chosen.name }
+    }
+    const downloadOpts = { mirror: config.mirror, token: config.token, repo: config.repo }
+    let asset = release.chosen
+    let zip = await downloadAsset(asset, append, progress, downloadOpts)
+
+    // 增量包必须和这批设备的底子对得上：任一已知设备版本偏离基座（或完全
+    // 没有可铺底的基座设备）时自动改用完整包，宁重勿缺。
+    if (asset.name.toLowerCase().endsWith("-update.zip")) {
+      const delta = await readDeltaInfo(zip)
+      const from = delta?.from ?? ""
+      if (delta?.fullRequired) {
+        append("  增量包要求完整包（模型有变更），改用完整包")
+      }
+      if (from) {
+        const pool = targets ?? config.dirs
+        const known = pool
+          .map((dir) =>
+            String(config.installedVersions[dir.id] ?? "").replace(/^v/i, "").trim(),
+          )
+          .filter((value) => !!value)
+        const usable = known.length > 0 && known.every((value) => value === from)
+        if (!usable || delta?.fullRequired) {
+          const full = release.assets.find(
+            (item) =>
+              item.name.toLowerCase().endsWith(".zip") &&
+              !item.name.toLowerCase().endsWith("-update.zip") &&
+              !item.name.toLowerCase().includes("-nomodel"),
+          )
+          if (full) {
+            append(
+              `  增量包基座 v${from} 与本批设备不一致（${known.join(" / ") || "版本未知"}），` +
+                `改用完整包 ${full.name}`,
+            )
+            asset = full
+            zip = await downloadAsset(asset, append, progress, downloadOpts)
+          } else {
+            append("  ! 该版本没有完整包，继续使用增量包（可能失败）")
+          }
+        }
+      }
+    }
+    return { zip, version: release.version, assetName: asset.name }
   }
 
   async function dryRun() {
@@ -871,7 +930,7 @@ function MainView() {
     setBusy(true)
     setPercent(0)
     try {
-      const source = await prepareInstallSource()
+      const source = await prepareInstallSource(targets)
       for (const dir of targets) {
         const target = await resolveTarget(dir)
         if (!target) {
@@ -879,6 +938,12 @@ function MainView() {
           continue
         }
         append(`[${dir.name}] 预演 v${source.version} → ${target}`)
+        if (!String(config.installedVersions[dir.id] ?? "").trim()) {
+          append(
+            `[${dir.name}] 版本未知：正式更新时会先从基座目录铺底，` +
+              `或用已更新完成的目录本地克隆`,
+          )
+        }
         const plan = await planZip(source.zip, target)
         append(
           `[${dir.name}] 将更新 ${plan.updated} 个，新增 ${plan.added} 个，跳过个人数据 ${plan.skipped} 个`,
@@ -895,27 +960,91 @@ function MainView() {
     }
   }
 
-  async function installToDirs(zip: string, version: string, targets: DirEntry[]) {
+  async function installToDirs(
+    zip: string,
+    version: string,
+    targets: DirEntry[],
+    isDelta = false,
+  ) {
     const installedVersions = { ...config.installedVersions }
-    for (const dir of targets) {
+    const versionOf = (dir: DirEntry) =>
+      String(installedVersions[dir.id] ?? "").replace(/^v/i, "").trim()
+    let working = [...targets]
+
+    // 增量包只带「相邻版本之间的差异」，版本未知的目录必须先铺到基座，
+    // 否则会重演 0.3.24「版本号前进、文件底子没跟上」事故。
+    const delta = isDelta ? await readDeltaInfo(zip) : null
+    const deltaFrom = delta?.from ?? ""
+    if (isDelta && deltaFrom) {
+      const unknowns = working.filter((dir) => !versionOf(dir))
+      if (unknowns.length > 0) {
+        const seed = config.dirs.find((dir) => versionOf(dir) === deltaFrom)
+        const seedTarget = seed ? await resolveTarget(seed) : ""
+        if (!seed || !seedTarget) {
+          for (const dir of unknowns) {
+            append(`✗ ${dir.name}：没有 v${deltaFrom} 的目录可铺底，请改用完整包`)
+          }
+          working = working.filter((dir) => versionOf(dir))
+        } else {
+          for (const dir of unknowns) {
+            const target = await resolveTarget(dir)
+            if (!target) {
+              append(`✗ ${dir.name}：找不到目录`)
+              working = working.filter((item) => item.id !== dir.id)
+              continue
+            }
+            append(
+              `[${dir.name}] 版本未知，先从「${seed.name}」铺底到 v${deltaFrom}` +
+                `（只复制方案文件，个人数据不动）`,
+            )
+            try {
+              const seeded = await mirrorProfile(seedTarget, target, deltaFrom, (line) =>
+                append(`[${dir.name}] ${line}`),
+              )
+              append(`[${dir.name}] 铺底完成：同步 ${seeded.copied} 个文件`)
+              installedVersions[dir.id] = deltaFrom
+            } catch (error: any) {
+              append(`✗ ${dir.name}：铺底失败：${String(error?.message ?? error)}`)
+              working = working.filter((item) => item.id !== dir.id)
+            }
+          }
+        }
+      }
+    }
+
+    // 完整包：先装有底子的目录，装完用它作为克隆源，供其它未知目录本地复制。
+    const ordered = isDelta
+      ? working
+      : [...working.filter((dir) => versionOf(dir)), ...working.filter((dir) => !versionOf(dir))]
+    let cloneSource = ""
+    let cloneSourceName = ""
+
+    for (const dir of ordered) {
       const target = await resolveTarget(dir)
       if (!target) {
         append(`✗ ${dir.name}：找不到目录`)
         continue
       }
+      const local = versionOf(dir)
       append(`[${dir.name}] 安装到 ${target}`)
       // 单个目录失败不中断其它目录（基座不符时会抛错并提示改用完整包）。
       try {
-        const result = await installZip(
-          zip,
-          target,
-          version,
-          append,
-          installedVersions[dir.id] ?? "",
-        )
-        append(`[${dir.name}] 更新 ${result.copied} 个文件`)
-        append(`[${dir.name}] 备份：${result.backupRoot}`)
+        if (!isDelta && !local && cloneSource) {
+          append(`[${dir.name}] 版本未知，从「${cloneSourceName}」本地克隆 v${version}`)
+          const cloned = await mirrorProfile(cloneSource, target, version, (line) =>
+            append(`[${dir.name}] ${line}`),
+          )
+          append(`[${dir.name}] 克隆 ${cloned.copied} 个文件`)
+        } else {
+          const result = await installZip(zip, target, version, append, local)
+          append(`[${dir.name}] 更新 ${result.copied} 个文件`)
+          append(`[${dir.name}] 备份：${result.backupRoot}`)
+        }
         installedVersions[dir.id] = version
+        if (!isDelta && !cloneSource) {
+          cloneSource = target
+          cloneSourceName = dir.name
+        }
         await deployDir(dir)
       } catch (error: any) {
         append(`✗ ${dir.name}：${String(error?.message ?? error)}`)
@@ -936,9 +1065,14 @@ function MainView() {
     setBusy(true)
     setPercent(0)
     try {
-      const source = await prepareInstallSource()
+      const source = await prepareInstallSource(targets)
       append(`准备安装 v${source.version} 到 ${targets.length} 个目录`)
-      await installToDirs(source.zip, source.version, targets)
+      await installToDirs(
+        source.zip,
+        source.version,
+        targets,
+        source.assetName.toLowerCase().endsWith("-update.zip"),
+      )
       // 只保留当前使用的包、勾选的方案和导入的包，避免仓库无限堆积。
       await pruneDownloadCache(
         [source.assetName, config.selectedScheme, ...config.importedSchemes].filter(
@@ -1011,7 +1145,12 @@ function MainView() {
       setPercent(0)
       append(`准备本地包 ${zip.name}（版本 ${version}）`)
       const staged = await stageLocalZip(zip.path)
-      await installToDirs(staged, version, [dir])
+      await installToDirs(
+        staged,
+        version,
+        [dir],
+        zip.name.toLowerCase().endsWith("-update.zip"),
+      )
       append("本地包安装完成")
     } catch (error: any) {
       append(`✗ ${String(error?.message ?? error)}`)
@@ -1518,6 +1657,7 @@ function MainView() {
         onUpdate={updateConfig}
         onEditToken={editToken}
         onEditRepo={editRepo}
+        onEditMirror={editMirror}
         onResetRepo={resetRepo}
         onPickAsset={pickAsset}
         selfUpdateLabel={selfUpdateLabel}

@@ -2,7 +2,7 @@ import { basename, storage } from "./common"
 import type { InputMethod } from "./deploy"
 import { DEFAULT_REPO, parseRepo } from "./github"
 
-export const SCRIPT_VERSION = "0.11.0"
+export const SCRIPT_VERSION = "0.12.0"
 
 const CONFIG_KEY = "cheese_tiger_ios_config"
 const PASSWORD_KEY = "cheese_tiger_webdav_password"
@@ -24,6 +24,8 @@ export type Config = {
   verboseLog: boolean
   repo: string
   assetName: string
+  /** 下载镜像前缀（可选），如 https://gh-proxy.com/ */
+  mirror: string
   syncUrl: string
   syncUser: string
   deviceName: string
@@ -81,6 +83,7 @@ function normalizeConfig(data: any): Config {
     verboseLog: data?.verboseLog !== false,
     repo: parseRepo(data?.repo),
     assetName: String(data?.assetName ?? ""),
+    mirror: String(data?.mirror ?? "").trim(),
     syncUrl: String(data?.syncUrl ?? ""),
     syncUser: String(data?.syncUser ?? ""),
     deviceName: String(data?.deviceName ?? "iPhone"),
@@ -108,6 +111,7 @@ export function loadConfig(): Config {
     verboseLog: true,
     repo: DEFAULT_REPO,
     assetName: "",
+    mirror: "",
     syncUrl: "",
     syncUser: "",
     deviceName: "iPhone",

@@ -317,6 +317,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         rime.readLocalVersion(profile.path);
   }
 
+  /// 能否在本进程里直接读写该目录的文件（铺底 / 克隆的前提）。
+  /// SAF 目录只有 content URI；Shizuku 目录需要经原生服务暂存，二者都不能
+  /// 跨设备复制，只能单机走完整包。
+  bool _seedable(Profile profile) =>
+      !profile.isSaf && !needsShizuku(profile.path);
+
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
@@ -781,7 +787,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       });
       final outdated = _profiles.any((profile) {
         final current = _profileVersion(profile);
-        return current.isNotEmpty && current != release.version;
+        // 版本未知的设备同样会参与更新，算「可更新」。
+        return current.isEmpty || current != release.version;
       });
       _logLine('远端最新：v${release.version}（${release.assetName}）'
           '${outdated ? '（可更新）' : '（最新）'}');
@@ -859,12 +866,22 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         _logLine('复用最近 ${_releaseCacheTtl.inMinutes} 分钟内的检查结果'
             '（v${cached.version}），不再请求 GitHub');
       }
+      final installedVersions = _profiles.map(_profileVersion).toList();
+      // 版本未知的设备只有在「本进程能直接复制文件的目录」上才允许
+      // 「先铺底再套增量」：SAF（元书）与 Shizuku 受限目录没有可直接读写的
+      // 绝对路径，跨设备复制做不了，仍走完整包。
+      final seedUnknown =
+          _profiles.any((p) => _seedable(p) && _profileVersion(p).isEmpty) &&
+              _profiles.every(
+                  (p) => _profileVersion(p).isNotEmpty || _seedable(p)) &&
+              _profiles.any((p) => _seedable(p) && _profileVersion(p).isNotEmpty);
       final package = selectedScheme ??
           await preparePackage(
             settings: _settings,
             // SAF 目录没有文件系统路径，必须走版本缓存，否则永远被当成「版本未知」
             // 而白白下载几百 MB 完整包。
-            installedVersions: _profiles.map(_profileVersion).toList(),
+            installedVersions: installedVersions,
+            seedUnknown: seedUnknown,
             profilePaths: _profiles.map((p) => p.path).toList(),
             log: _logLine,
             progress: (percent) {
@@ -882,13 +899,97 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
       final picked =
           _profiles.where((p) => targets.contains(p.identity)).toList();
+      // 完整包 / 无模型包统一只下载一份；有底子的设备先更新，更新成功后
+      // 再把它整套方案文件本地克隆给版本未知设备，避免每台重复解包写入。
+      final ordered = package.isDelta
+          ? picked
+          : <Profile>[
+              ...picked.where((p) => _profileVersion(p).isNotEmpty),
+              ...picked.where((p) => _profileVersion(p).isEmpty),
+            ];
       final failed = <String>[];
-      for (var index = 0; index < picked.length; index++) {
-        final profile = picked[index];
+      final seedFailed = <String>{};
+      Profile? cloneSource;
+
+      // 增量包场景：版本未知设备先铺底到增量基座，再统一套增量。
+      final deltaBase =
+          package.isDelta ? normalizeVersion(deltaBaseVersion(package.zipPath)) : '';
+      if (deltaBase.isNotEmpty) {
+        final unknownProfiles = picked
+            .where((p) => _seedable(p) && _profileVersion(p).isEmpty)
+            .toList();
+        Profile? seedSource;
+        for (final candidate in _profiles) {
+          if (!_seedable(candidate)) continue;
+          if (normalizeVersion(_profileVersion(candidate)) == deltaBase) {
+            seedSource = candidate;
+            break;
+          }
+        }
+        if (unknownProfiles.isNotEmpty && seedSource == null) {
+          _logLine('✗ 没有版本为 v$deltaBase 的设备可铺底，无法安全使用增量包');
+          for (final target in unknownProfiles) {
+            failed.add(target.label);
+            seedFailed.add(target.identity);
+          }
+        } else if (unknownProfiles.isNotEmpty && seedSource != null) {
+          final source = seedSource;
+          for (var i = 0; i < unknownProfiles.length; i++) {
+            final target = unknownProfiles[i];
+            _logLine('');
+            _logLine('[${target.label}] ${target.path}');
+            _logLine('  版本未知，先从「${source.label}」铺底到基座 '
+                'v$deltaBase（只复制方案文件，保留用户词库与个人配置）');
+            try {
+              final stats = await withProfileDirectory(
+                target,
+                (local) => mirrorProfile(
+                  source: source.path,
+                  target: local.path,
+                  version: deltaBase,
+                  dryRun: dryRun,
+                  snapshot: _settings.snapshot && !dryRun,
+                  log: _logLine,
+                  onFile: (done, total) {
+                    if (!mounted) return;
+                    setState(() {
+                      _progress = (i + (total > 0 ? done / total : 1)) /
+                          (unknownProfiles.length * 2);
+                    });
+                  },
+                ),
+                readOnly: dryRun,
+              );
+              if (stats.backupStamp != null) {
+                _logLine('  已创建备份 ${stats.backupStamp}');
+              }
+            } catch (error) {
+              _logLine('✗ 铺底失败：$error');
+              failed.add(target.label);
+              seedFailed.add(target.identity);
+            }
+          }
+        }
+      }
+
+      // 已有设备就在目标版本时，版本未知设备可以直接克隆它，不必再解包。
+      if (!package.isDelta) {
+        for (final candidate in _profiles) {
+          if (!_seedable(candidate)) continue;
+          if (_profileVersion(candidate) == package.version) {
+            cloneSource = candidate;
+            break;
+          }
+        }
+      }
+
+      for (var index = 0; index < ordered.length; index++) {
+        final profile = ordered[index];
+        if (seedFailed.contains(profile.identity)) continue;
         _logLine('');
         _logLine('[${profile.label}] ${profile.path}');
-        final base = 55 + index * 45 ~/ picked.length;
-        final span = 45 ~/ picked.length;
+        final base = 55 + index * 45 ~/ ordered.length;
+        final span = 45 ~/ ordered.length;
 
         // 已经在本版本上的设备直接跳过：避免每次点更新都对所有设备
         // 重新遍历文件并重复部署（重启输入法）。
@@ -929,13 +1030,25 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           continue;
         }
 
-        final stats = await withProfileDirectory(
+        final localVersion = _profileVersion(profile);
+        final canClone = _seedable(profile) &&
+            localVersion.isEmpty &&
+            !package.isDelta &&
+            !dryRun &&
+            cloneSource != null;
+        if (canClone) {
+          _logLine('  版本未知，从「${cloneSource.label}」本地克隆'
+              '（v${package.version}，只复制方案文件）');
+        }
+        final ApplyStats stats = await withProfileDirectory(
             profile,
-            (local) => applyZip(
-                  zipPath: package.zipPath,
+            (local) async {
+              if (canClone) {
+                return mirrorProfile(
+                  source: cloneSource!.path,
                   target: local.path,
                   version: package.version,
-                  dryRun: dryRun,
+                  dryRun: false,
                   snapshot: _settings.snapshot,
                   log: _logLine,
                   onFile: (done, total) {
@@ -946,11 +1059,33 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                               100;
                     });
                   },
-                ),
+                );
+              }
+              return applyZip(
+                zipPath: package.zipPath,
+                target: local.path,
+                version: package.version,
+                dryRun: dryRun,
+                snapshot: _settings.snapshot,
+                baseOverride:
+                    package.isDelta && localVersion.isEmpty ? deltaBase : '',
+                log: _logLine,
+                onFile: (done, total) {
+                  if (!mounted) return;
+                  setState(() {
+                    _progress =
+                        (base + (total > 0 ? span * done ~/ total : span)) /
+                            100;
+                  });
+                },
+              );
+            },
             readOnly: dryRun);
         if (stats.backupStamp != null) {
           _logLine('  已创建备份 ${stats.backupStamp}');
         }
+        // 后续的版本未知设备可以从这台已更新完成的设备直接克隆。
+        if (!dryRun && _seedable(profile)) cloneSource = profile;
 
         if (_settings.deploy && !dryRun) {
           await deployProfile(profile,
@@ -1861,7 +1996,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     if (_remoteVersion.isEmpty) return 0;
     return _profiles.where((profile) {
       final current = _profileVersion(profile);
-      return current.isNotEmpty && current != _remoteVersion;
+      // 版本未知（新装 / 缺标记）也会被更新，计入「可更新」。
+      return current.isEmpty || current != _remoteVersion;
     }).length;
   }
 
@@ -2325,8 +2461,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       label = '未检查';
       color = theme.colorScheme.onSurfaceVariant;
     } else if (current.isEmpty) {
-      label = '版本未知';
-      color = theme.colorScheme.onSurfaceVariant;
+      // 新装设备没有版本标记：更新器会为其铺底 / 完整安装，同样算「可更新」。
+      label = '可更新';
+      color = theme.colorScheme.error;
     } else if (current == _remoteVersion) {
       label = '已最新';
       color = theme.brightness == Brightness.dark

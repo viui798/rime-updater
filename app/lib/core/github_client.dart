@@ -221,6 +221,19 @@ class GithubClient {
     );
   }
 
+  /// 给 GitHub Release 资产地址加上镜像前缀。
+  /// 例如 mirror=https://gh-proxy.com/、
+  /// url=https://github.com/o/r/releases/download/v1/a.zip
+  /// → https://gh-proxy.com/https://github.com/o/r/releases/download/v1/a.zip
+  static String applyMirror(String mirror, String url) {
+    final trimmed = mirror.trim();
+    if (trimmed.isEmpty || !url.startsWith('https://github.com/')) return url;
+    final base = trimmed.endsWith('/') ? trimmed : '$trimmed/';
+    return '$base$url';
+  }
+
+  /// 依次尝试：镜像（若配置）→ 直链 → GitHub API 资产地址。
+  /// 直链 504 / 断连时，API 资产地址实测仍可用，作为最后兜底。
   Future<void> downloadTo(
     String url,
     String destPath, {
@@ -230,6 +243,50 @@ class GithubClient {
     final dir = Directory(p.dirname(destPath))..createSync(recursive: true);
     if (!dir.existsSync()) throw UpdateException('无法创建缓存目录：${dir.path}');
 
+    final candidates = <String>[];
+    if (settings.mirror.trim().isNotEmpty) {
+      final mirrored = applyMirror(settings.mirror, url);
+      if (mirrored != url) {
+        candidates.add(mirrored);
+        log('  使用下载镜像 ${settings.mirror.trim()}');
+      }
+    }
+    candidates.add(url);
+
+    UpdateException? lastError;
+    for (var i = 0; i < candidates.length; i++) {
+      try {
+        await _downloadOnce(candidates[i], destPath, expectedSha, onPercent);
+        return;
+      } catch (error) {
+        lastError = error is UpdateException
+            ? error
+            : UpdateException('下载失败：$error');
+        log('  ! $lastError');
+        if (i < candidates.length - 1) log('  尝试下一个下载地址…');
+      }
+    }
+
+    final apiUrl = await _resolveApiAssetUrl(url);
+    if (apiUrl != null) {
+      log('  改用 GitHub API 资产地址重试');
+      try {
+        await _downloadOnce(apiUrl, destPath, expectedSha, onPercent);
+        return;
+      } on UpdateException catch (error) {
+        lastError = error;
+        log('  ! $error');
+      }
+    }
+    throw lastError ?? UpdateException('下载失败');
+  }
+
+  Future<void> _downloadOnce(
+    String url,
+    String destPath,
+    String expectedSha,
+    void Function(int percent)? onPercent,
+  ) async {
     final request = await client.getUrl(Uri.parse(url));
     request.headers.set('Accept', 'application/octet-stream');
     request.headers.set('User-Agent', 'CheeseTigerUpdater/1.0');
@@ -239,6 +296,11 @@ class GithubClient {
 
     final response = await request.close();
     if (response.statusCode != 200) {
+      try {
+        await response.drain<void>();
+      } catch (_) {
+        // 连接被中断时忽略 drain 错误，按 HTTP 状态处理
+      }
       throw UpdateException('下载失败：HTTP ${response.statusCode}');
     }
 
@@ -248,17 +310,23 @@ class GithubClient {
     var received = 0;
     var lastPercent = -5;
 
-    await for (final chunk in response) {
-      sink.add(chunk);
-      received += chunk.length;
-      if (total > 0 && onPercent != null) {
-        final percent = received * 100 ~/ total;
-        if (percent >= lastPercent + 5) {
-          lastPercent = percent;
-          log('  下载 $percent%');
-          onPercent(percent);
+    try {
+      await for (final chunk in response) {
+        sink.add(chunk);
+        received += chunk.length;
+        if (total > 0 && onPercent != null) {
+          final percent = received * 100 ~/ total;
+          if (percent >= lastPercent + 5) {
+            lastPercent = percent;
+            log('  下载 $percent%');
+            onPercent(percent);
+          }
         }
       }
+    } catch (error) {
+      await sink.close();
+      if (partFile.existsSync()) partFile.deleteSync();
+      throw UpdateException('下载中断：$error');
     }
     await sink.close();
 
@@ -275,6 +343,45 @@ class GithubClient {
     final target = File(destPath);
     if (target.existsSync()) target.deleteSync();
     partFile.renameSync(destPath);
+  }
+
+  /// 从 `https://github.com/<owner>/<repo>/releases/download/<tag>/<name>`
+  /// 解析出资产名与 tag，再通过 API 查到对应的资产下载地址。
+  Future<String?> _resolveApiAssetUrl(String originalUrl) async {
+    final uri = Uri.tryParse(originalUrl);
+    if (uri == null) return null;
+    final segments = uri.pathSegments;
+    if (segments.length < 6 ||
+        segments[2] != 'releases' ||
+        segments[3] != 'download') {
+      return null;
+    }
+    final tag = segments[4];
+    final name = segments.last;
+    try {
+      final request = await client.getUrl(
+          Uri.https('api.github.com', '/repos/$repo/releases/tags/$tag'));
+      _baseHeaders.forEach(request.headers.set);
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      if (response.statusCode != 200) {
+        log('  ! API 查询资产失败：HTTP ${response.statusCode}');
+        return null;
+      }
+      final data = jsonDecode(body);
+      if (data is! Map) return null;
+      final assets = data['assets'] as List? ?? const [];
+      for (final asset in assets) {
+        if (asset is Map && asset['name'] == name) {
+          final apiUrl = asset['url']?.toString();
+          if (apiUrl != null && apiUrl.isNotEmpty) return apiUrl;
+        }
+      }
+      log('  ! API 里找不到资产 $name');
+    } catch (error) {
+      log('  ! API 兜底失败：$error');
+    }
+    return null;
   }
 
   Future<String> readExpectedSha(String assetName, ReleaseInfo release) async {

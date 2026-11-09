@@ -32,6 +32,8 @@ class _SettingsDialogState extends State<SettingsDialog> {
       TextEditingController(text: widget.settings.repo);
   late final TextEditingController _proxy =
       TextEditingController(text: widget.settings.proxy);
+  late final TextEditingController _mirror =
+      TextEditingController(text: widget.settings.mirror);
   late final TextEditingController _token =
       TextEditingController(text: widget.settings.token);
   late final TextEditingController _cacheDir =
@@ -96,6 +98,7 @@ class _SettingsDialogState extends State<SettingsDialog> {
         repo: _repo.text.trim(),
         proxy: _proxy.text.trim(),
         token: _token.text.trim(),
+        mirror: _mirror.text.trim(),
         cacheDir: _cacheDir.text.trim(),
         deploy: _deploy,
         restart: _restart,
@@ -169,6 +172,16 @@ class _SettingsDialogState extends State<SettingsDialog> {
                       labelText: '网络代理',
                       hintText: 'http://127.0.0.1:7890',
                       helperText: '访问 GitHub 需要代理时才填，直连正常就留空',
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  TextField(
+                    controller: _mirror,
+                    decoration: const InputDecoration(
+                      labelText: '下载镜像（可选）',
+                      hintText: 'https://gh-proxy.com/',
+                      helperText: 'GitHub 下载 504/超时时可填镜像前缀；'
+                          '失败时还会自动改用 GitHub API 资产地址',
                     ),
                   ),
                   const SizedBox(height: 14),

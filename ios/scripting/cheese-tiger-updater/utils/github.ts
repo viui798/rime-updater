@@ -18,6 +18,50 @@ export type ReleaseInfo = {
 
 export const DEFAULT_REPO = "viui798/viui-tiger-sentense"
 
+/** 给 GitHub Release 资产地址加镜像前缀；不是 GitHub 地址或没配置时原样返回。 */
+export function applyMirror(mirror: string | undefined, url: string): string {
+  const trimmed = String(mirror ?? "").trim()
+  if (!trimmed || !url.startsWith("https://github.com/")) return url
+  const base = trimmed.endsWith("/") ? trimmed : `${trimmed}/`
+  return `${base}${url}`
+}
+
+/**
+ * 直链 504 / 超时时的兜底：用 API 查到该资产的下载地址。
+ * 只在主链失败后调用，避免白白消耗 API 额度。
+ */
+export async function fetchAssetApiUrl(
+  url: string,
+  token?: string,
+  repo?: string,
+): Promise<string | null> {
+  const hit = url.match(
+    /^https:\/\/github\.com\/[^/]+\/[^/]+\/releases\/download\/([^/]+)\/([^/?#]+)/,
+  )
+  if (!hit) return null
+  const tag = decodeURIComponent(hit[1])
+  const name = decodeURIComponent(hit[2])
+  const headers: Record<string, string> = {
+    "User-Agent": "cheese-tiger-updater",
+    Accept: "application/vnd.github+json",
+  }
+  if (token && token.trim()) headers.Authorization = `Bearer ${token.trim()}`
+  try {
+    const res = await Runtime.fetch(
+      `https://api.github.com/repos/${parseRepo(repo)}/releases/tags/${tag}`,
+      { headers },
+    )
+    if (!res.ok) return null
+    const json = await res.json()
+    const assets: any[] = Array.isArray(json?.assets) ? json.assets : []
+    const asset = assets.find((item) => item?.name === name)
+    const apiUrl = asset?.url ? String(asset.url) : ""
+    return apiUrl || null
+  } catch {
+    return null
+  }
+}
+
 /** 接受 owner/repo 或 GitHub 网址，返回 owner/repo */
 export function parseRepo(input?: string): string {
   const raw = String(input ?? "").trim()

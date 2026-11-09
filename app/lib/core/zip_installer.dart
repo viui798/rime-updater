@@ -150,6 +150,10 @@ String deltaBaseVersion(String zipPath) {
   }
 }
 
+/// 去掉前导 v 与空白，便于比较版本串。
+String normalizeVersion(String value) =>
+    (value.startsWith('v') ? value.substring(1) : value).trim();
+
 /// 基座校验：任一目标目录的已装版本与增量基座不一致（或未知）返回 true。
 /// 增量包只覆盖 from->to 的差异，套在别的底子上会缺文件导致打不出字
 /// （2026-11-05 事故），宁重勿缺。
@@ -162,6 +166,30 @@ bool deltaBaseMismatch(String zipPath, List<String> installedVersions) {
     return local.isEmpty || local != norm.trim();
   });
 }
+
+/// 判断增量包能否用于这批设备。
+/// - 没有 DELTA.json / 没有 from：不做约束；
+/// - 有已知设备且全部等于基座：可用；
+/// - 版本未知的设备只有在 [seedUnknown] 为 true 时才放行
+///   （调用方会先从不含用户数据的方案文件铺底，再套增量）；
+/// - 任一已知设备与基座不一致：不可用，必须完整包。
+bool deltaBaseUsable(String zipPath, List<String> installedVersions,
+    {bool seedUnknown = false}) {
+  final base = deltaBaseVersion(zipPath);
+  if (base.isEmpty) return true;
+  final normBase = normalizeVersion(base);
+  final known = installedVersions
+      .map(normalizeVersion)
+      .where((value) => value.isNotEmpty)
+      .toList();
+  if (known.isEmpty) return false;
+  if (known.any((value) => value != normBase)) return false;
+  final hasUnknown =
+      installedVersions.any((value) => normalizeVersion(value).isEmpty);
+  if (hasUnknown && !seedUnknown) return false;
+  return true;
+}
+
 
 String readZipVersion(String zipPath) {
   if (!File(zipPath).existsSync()) return '';
@@ -188,6 +216,7 @@ ApplyStats applyZip({
   required String version,
   required bool dryRun,
   required bool snapshot,
+  String baseOverride = '',
   required void Function(String line) log,
   required void Function(int done, int total) onFile,
 }) {
@@ -212,8 +241,11 @@ ApplyStats applyZip({
     final deltaBase = delta['from']?.toString() ?? '';
     if (deltaBase.isNotEmpty) {
       // 基座校验：底子不对（或版本未知）一律完整包，宁重勿缺。
-      final local = (readLocalVersion(target)).replaceAll(RegExp('^v'), '').trim();
-      final base = deltaBase.startsWith('v') ? deltaBase.substring(1) : deltaBase;
+      // baseOverride 供预演 / 已铺底场景使用：铺底会写入基座标记，
+      // 预演不落盘，因此由调用方传入待校验的基座版本。
+      final local = normalizeVersion(
+          baseOverride.isNotEmpty ? baseOverride : readLocalVersion(target));
+      final base = normalizeVersion(deltaBase);
       if (local.isEmpty || local != base) {
         throw FullPackageRequired(
             '增量包基座 $base 与已装版本 ${local.isEmpty ? '未知' : local} 不一致，请改用完整包');
@@ -350,6 +382,136 @@ ApplyStats applyZip({
   } finally {
     input.close();
   }
+}
+
+/// 判断源文件与目标文件内容是否一致。
+/// 大文件（模型）走流式 sha256，避免把 405MB 读进内存。
+Future<bool> _sameFileContent(File source, File target) async {
+  if (!target.existsSync() || source.lengthSync() != target.lengthSync()) {
+    return false;
+  }
+  final length = source.lengthSync();
+  if (length > 1024 * 1024) {
+    final a = (await crypto.sha256.bind(source.openRead()).first).toString();
+    final b = (await crypto.sha256.bind(target.openRead()).first).toString();
+    return a == b;
+  }
+  final a = source.readAsBytesSync();
+  final b = target.readAsBytesSync();
+  for (var i = 0; i < a.length; i++) {
+    if (a[i] != b[i]) return false;
+  }
+  return true;
+}
+
+/// 从另一台设备的用户目录复制「方案文件」到目标目录，供两种场景：
+/// 1. 版本未知设备先铺底到增量基座，再套增量包；
+/// 2. 完整包更新后，把已更新设备整套文件本地克隆给版本未知设备。
+///
+/// 只复制 [shouldCopy] 允许的包文件，不覆盖用户词库 / 个人配置 / 学习数据；
+/// 不复制版本标记，完成后按 [version] 显式写入。
+Future<ApplyStats> mirrorProfile({
+  required String source,
+  required String target,
+  required String version,
+  required bool dryRun,
+  required bool snapshot,
+  required void Function(String line) log,
+  required void Function(int done, int total) onFile,
+}) async {
+  final srcDir = Directory(source);
+  if (!srcDir.existsSync()) {
+    throw UpdateException('铺底源目录不存在：$source');
+  }
+  if (p.normalize(p.absolute(source)) == p.normalize(p.absolute(target))) {
+    throw UpdateException('铺底源不能是目标目录自己');
+  }
+
+  final files = <String>[];
+  for (final entity in srcDir.listSync(recursive: true, followLinks: false)) {
+    if (entity is! File) continue;
+    final rel = p.relative(entity.path, from: source).replaceAll('\\', '/');
+    if (rel.startsWith('$backupDirName/')) continue;
+    if (!shouldCopy(rel, size: entity.lengthSync(), target: target)) continue;
+    files.add(rel);
+  }
+  files.sort();
+
+  final stamp = _stampNow();
+  final previousVersion = readLocalVersion(target);
+  final backupRoot = p.join(target, backupDirName, stamp);
+  final overwritten = <String>[];
+  final created = <String>[];
+  final tooBig = <String>[];
+  var done = 0;
+  var copied = 0;
+  var skipped = 0;
+
+  for (final rel in files) {
+    final srcFile = File(p.join(source, rel));
+    final dstFile = File(p.join(target, rel));
+    final existed = dstFile.existsSync();
+
+    if (await _sameFileContent(srcFile, dstFile)) {
+      log('  未变化 $rel');
+      skipped++;
+      done++;
+      onFile(done, files.length);
+      continue;
+    }
+
+    if (dryRun) {
+      log('  会复制 $rel');
+      copied++;
+    } else {
+      if (existed && snapshot) {
+        final size = dstFile.lengthSync();
+        if (size > backupMaxBytes) {
+          tooBig.add(rel);
+          log('  ! $rel 体积过大，未纳入备份');
+        } else {
+          final bak = p.join(backupRoot, rel);
+          File(bak).parent.createSync(recursive: true);
+          dstFile.copySync(bak);
+          overwritten.add(rel);
+        }
+      } else if (snapshot && !existed) {
+        created.add(rel);
+      }
+      dstFile.parent.createSync(recursive: true);
+      srcFile.copySync(dstFile.path);
+      copied++;
+    }
+    done++;
+    onFile(done, files.length);
+  }
+
+  String? backupStamp;
+  if (!dryRun) {
+    File(p.join(target, markerFile)).writeAsStringSync('$version\n');
+    if (snapshot &&
+        (overwritten.isNotEmpty || created.isNotEmpty || tooBig.isNotEmpty)) {
+      backupStamp = stamp;
+      final manifest = {
+        'stamp': stamp,
+        'version': version,
+        'previous_version': previousVersion,
+        'target': target,
+        'overwritten': overwritten,
+        'created': created,
+        'deleted': <String>[],
+        'too_big': tooBig,
+      };
+      final manifestFile = File(p.join(backupRoot, 'manifest.json'));
+      manifestFile.parent.createSync(recursive: true);
+      manifestFile.writeAsStringSync(
+        const JsonEncoder.withIndent('  ').convert(manifest),
+      );
+    }
+  }
+
+  log('${dryRun ? '预演' : '完成'}：复制 $copied 个文件，跳过 $skipped 个');
+  return ApplyStats(copied: copied, skipped: skipped, backupStamp: backupStamp);
 }
 
 void rollback({

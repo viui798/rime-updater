@@ -301,4 +301,139 @@ void main() {
     expect(File(p.join(dir.path, 'lua/db.lua')).existsSync(), isTrue);
     expect(Directory(p.join(dir.path, 'rime-ice')).existsSync(), isFalse);
   });
+
+  test('铺底只复制方案文件、保留用户数据并写入基座标记', () async {
+    final root = Directory.systemTemp.createTempSync('rime-mirror-');
+    cleanupDir(root);
+    final src = Directory(p.join(root.path, 'source'))..createSync();
+    final dst = Directory(p.join(root.path, 'target'))..createSync();
+
+    File(p.join(src.path, 'lua/db.lua'))
+      ..createSync(recursive: true)
+      ..writeAsStringSync('SRC-DB');
+    File(p.join(src.path, 'tiger_sentence.schema.yaml'))
+      .writeAsStringSync('SRC-SCHEMA');
+    File(p.join(src.path, 'user.yaml')).writeAsStringSync('SRC-USER');
+    File(p.join(src.path, 'lua/kc_count.txt')).writeAsStringSync('1');
+    File(p.join(src.path, 'lua/kc_total.txt')).writeAsStringSync('9');
+    File(p.join(src.path, '.cheese-tiger-version')).writeAsStringSync('0.3.26\n');
+    File(p.join(src.path, backupDirName, 'x/manifest.json'))
+      ..createSync(recursive: true)
+      ..writeAsStringSync('{}');
+
+    File(p.join(dst.path, 'user.yaml'))
+      ..createSync(recursive: true)
+      ..writeAsStringSync('MY-USER');
+    File(p.join(dst.path, 'lua/db.lua'))
+      ..createSync(recursive: true)
+      ..writeAsStringSync('OLD-DB');
+    File(p.join(dst.path, '.cheese-tiger-version'))
+      .writeAsStringSync('0.3.24\n');
+
+    final stats = await mirrorProfile(
+      source: src.path,
+      target: dst.path,
+      version: '0.3.26',
+      dryRun: false,
+      snapshot: true,
+      log: (_) {},
+      onFile: (_, __) {},
+    );
+
+    expect(File(p.join(dst.path, 'lua/db.lua')).readAsStringSync(), 'SRC-DB');
+    expect(File(p.join(dst.path, 'tiger_sentence.schema.yaml')).existsSync(),
+        isTrue);
+    expect(File(p.join(dst.path, 'user.yaml')).readAsStringSync(), 'MY-USER');
+    expect(File(p.join(dst.path, 'lua/kc_count.txt')).existsSync(), isFalse);
+    expect(File(p.join(dst.path, 'lua/kc_total.txt')).existsSync(), isFalse);
+    expect(Directory(p.join(dst.path, backupDirName)).existsSync(), isTrue);
+    expect(readLocalVersion(dst.path), '0.3.26');
+    expect(stats.backupStamp, isNotNull);
+  });
+
+  test('铺底预演不写文件、不改版本标记', () async {
+    final root = Directory.systemTemp.createTempSync('rime-mirror-dry-');
+    cleanupDir(root);
+    final src = Directory(p.join(root.path, 'source'))..createSync();
+    final dst = Directory(p.join(root.path, 'target'))..createSync();
+    File(p.join(src.path, 'lua/new.lua'))
+      ..createSync(recursive: true)
+      ..writeAsStringSync('NEW');
+    File(p.join(dst.path, '.cheese-tiger-version')).writeAsStringSync('0.3.24\n');
+
+    final stats = await mirrorProfile(
+      source: src.path,
+      target: dst.path,
+      version: '0.3.27',
+      dryRun: true,
+      snapshot: true,
+      log: (_) {},
+      onFile: (_, __) {},
+    );
+
+    expect(File(p.join(dst.path, 'lua/new.lua')).existsSync(), isFalse);
+    expect(readLocalVersion(dst.path), '0.3.24');
+    expect(stats.copied, 1);
+    expect(stats.backupStamp, isNull);
+  });
+
+  test('增量基座允许未知设备铺底，但拒绝版本不一致', () {
+    final dir = Directory.systemTemp.createTempSync('rime-base-seed-');
+    cleanupDir(dir);
+    final archive = Archive();
+    final bytes = utf8.encode(jsonEncode({
+      'from': 'v0.3.26',
+      'to': 'v0.3.27',
+      'full_required': false,
+      'deletions': <String>[],
+    }));
+    archive.addFile(ArchiveFile('update/DELTA.json', bytes.length, bytes));
+    final zipPath = p.join(dir.path, 'delta.zip');
+    File(zipPath).writeAsBytesSync(ZipEncoder().encode(archive));
+
+    expect(deltaBaseUsable(zipPath, ['0.3.26', '0.3.26'], seedUnknown: true),
+        isTrue);
+    // 一台基座匹配 + 一台版本未知，且允许铺底 → 可用
+    expect(deltaBaseUsable(zipPath, ['v0.3.26', ''], seedUnknown: true), isTrue);
+    // 不允许铺底时，版本未知必须退回完整包
+    expect(deltaBaseUsable(zipPath, ['v0.3.26', '']), isFalse);
+    // 已知设备版本与基座不一致 → 不可用
+    expect(deltaBaseUsable(zipPath, ['0.3.24', '0.3.24', ''], seedUnknown: true),
+        isFalse);
+    // 没有任何已知基座设备 → 无法铺底
+    expect(deltaBaseUsable(zipPath, ['', ''], seedUnknown: true), isFalse);
+  });
+
+  test('预演可用 baseOverride 通过基座校验', () {
+    final dir = Directory.systemTemp.createTempSync('rime-base-override-');
+    cleanupDir(dir);
+    final archive = Archive();
+    void add(String name, String content) {
+      final bytes = utf8.encode(content);
+      archive.addFile(ArchiveFile(name, bytes.length, bytes));
+    }
+
+    add('update/lua/db.lua', 'NEW-DB');
+    add(
+      'update/DELTA.json',
+      jsonEncode({'from': 'v0.3.26', 'to': 'v0.3.27', 'deletions': <String>[]}),
+    );
+    final zipPath = p.join(dir.path, 'delta.zip');
+    File(zipPath).writeAsBytesSync(ZipEncoder().encode(archive));
+
+    final stats = applyZip(
+      zipPath: zipPath,
+      target: dir.path,
+      version: '0.3.27',
+      dryRun: true,
+      snapshot: false,
+      baseOverride: 'v0.3.26',
+      log: (_) {},
+      onFile: (_, __) {},
+    );
+
+    expect(stats.copied, 1);
+    expect(File(p.join(dir.path, 'lua/db.lua')).existsSync(), isFalse);
+    expect(readLocalVersion(dir.path), '');
+  });
 }

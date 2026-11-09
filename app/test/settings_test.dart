@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
+import 'package:rime_updater/core/github_client.dart';
 import 'package:rime_updater/core/rime_profile.dart';
 import 'package:rime_updater/models.dart';
 
@@ -90,5 +91,30 @@ void main() {
 
     final fallback = profilesFromPaths([rimeDir.path]);
     expect(fallback.single.label, p.basename(rimeDir.path));
+  });
+
+  test('下载镜像会随设置保存，并能拼到 GitHub 资产地址', () {
+    final settings = Settings(mirror: 'https://gh-proxy.com');
+    final decoded = Settings.fromJson(
+      jsonDecode(jsonEncode(settings.toJson())) as Map<String, dynamic>,
+    );
+    expect(decoded.mirror, 'https://gh-proxy.com');
+    expect(decoded.copyWith(proxy: 'http://127.0.0.1:7890').mirror,
+        'https://gh-proxy.com');
+
+    const url = 'https://github.com/o/r/releases/download/v1/a.zip';
+    expect(
+      GithubClient.applyMirror('https://gh-proxy.com', url),
+      'https://gh-proxy.com/https://github.com/o/r/releases/download/v1/a.zip',
+    );
+    expect(
+      GithubClient.applyMirror('https://gh-proxy.com/', url),
+      'https://gh-proxy.com/https://github.com/o/r/releases/download/v1/a.zip',
+    );
+    expect(GithubClient.applyMirror('', url), url);
+    expect(
+      GithubClient.applyMirror('https://m/', 'https://api.github.com/repos'),
+      'https://api.github.com/repos',
+    );
   });
 }
