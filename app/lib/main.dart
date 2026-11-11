@@ -26,6 +26,7 @@ import 'ui/local_schemes_dialog.dart';
 import 'ui/local_zip_dialog.dart';
 import 'ui/remote_scheme_dialog.dart';
 import 'ui/settings_dialog.dart';
+import 'ui/swipe_action_row.dart';
 import 'ui/switch_scheme_dialog.dart';
 import 'ui/sync_dialog.dart';
 import 'ui/sync_library_dialog.dart';
@@ -74,6 +75,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   List<String> _androidUnavailable = [];
   bool _discoveringAndroid = false;
   final SafClient _saf = SafClient();
+
   /// SAF 目录的版本号缓存（URI -> 版本），异步读取后填充。
   final Map<String, String> _safVersions = {};
 
@@ -257,44 +259,44 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               ? AppColors.successDark
               : AppColors.success;
           return AlertDialog(
-              title: const Text('Android 输入法访问'),
-              content: SingleChildScrollView(
-                  child: Text('公共目录：授权「所有文件访问」后可直接更新。点设备区「+」可添加目录，'
-                      '其中「系统文件选择器」能选 Android/data 与元书这类受限目录。\n\n'
-                      '${shizukuStatusText(granted: granted, running: running)}\n\n'
-                      '应用内部私有目录（/data/user/0）无法通过普通 Shizuku 访问，请在输入法中使用公共用户目录或导入导出功能。\n\n'
-                      '元书（Hamster）的数据存放在应用私有目录，仅通过系统文件选择器（HamsterDocumentsProvider）对外暴露，'
-                      '本工具无法直接读写；如需管理，请在元书内使用导入导出，或把方案放到公共目录。'
-                      '${_androidUnavailable.isEmpty ? '' : '\n\n未找到可访问目录：${_androidUnavailable.join('、')}。可能使用公共目录或内部私有目录。'}')),
-              actions: [
-                TextButton(
-                    onPressed: () {
-                      Navigator.pop(context);
-                      requestAllFilesAccess();
-                    },
-                    child: const Text('文件权限')),
-                TextButton(
-                    onPressed: () => Navigator.pop(context, false),
-                    child: const Text('关闭')),
-                if (granted)
-                  FilledButton.icon(
-                    // 表达「已连上」而不是「不可用」：禁用点击但用成功色呈现。
-                    onPressed: null,
-                    icon: const Icon(Icons.check_circle_outline, size: 16),
-                    style: FilledButton.styleFrom(
-                      disabledBackgroundColor: okColor.withValues(alpha: 0.14),
-                      disabledForegroundColor: okColor,
-                      side: BorderSide(color: okColor.withValues(alpha: 0.5)),
-                    ),
-                    label: const Text('已连接 Shizuku'),
-                  )
-                else
-                  FilledButton(
-                    onPressed: () => Navigator.pop(context, true),
-                    child: Text(
-                        shizukuActionLabel(granted: granted, running: running)),
+            title: const Text('Android 输入法访问'),
+            content: SingleChildScrollView(
+                child: Text('公共目录：授权「所有文件访问」后可直接更新。点设备区「+」可添加目录，'
+                    '其中「系统文件选择器」能选 Android/data 与元书这类受限目录。\n\n'
+                    '${shizukuStatusText(granted: granted, running: running)}\n\n'
+                    '应用内部私有目录（/data/user/0）无法通过普通 Shizuku 访问，请在输入法中使用公共用户目录或导入导出功能。\n\n'
+                    '元书（Hamster）的数据存放在应用私有目录，仅通过系统文件选择器（HamsterDocumentsProvider）对外暴露，'
+                    '本工具无法直接读写；如需管理，请在元书内使用导入导出，或把方案放到公共目录。'
+                    '${_androidUnavailable.isEmpty ? '' : '\n\n未找到可访问目录：${_androidUnavailable.join('、')}。可能使用公共目录或内部私有目录。'}')),
+            actions: [
+              TextButton(
+                  onPressed: () {
+                    Navigator.pop(context);
+                    requestAllFilesAccess();
+                  },
+                  child: const Text('文件权限')),
+              TextButton(
+                  onPressed: () => Navigator.pop(context, false),
+                  child: const Text('关闭')),
+              if (granted)
+                FilledButton.icon(
+                  // 表达「已连上」而不是「不可用」：禁用点击但用成功色呈现。
+                  onPressed: null,
+                  icon: const Icon(Icons.check_circle_outline, size: 16),
+                  style: FilledButton.styleFrom(
+                    disabledBackgroundColor: okColor.withValues(alpha: 0.14),
+                    disabledForegroundColor: okColor,
+                    side: BorderSide(color: okColor.withValues(alpha: 0.5)),
                   ),
-              ],
+                  label: const Text('已连接 Shizuku'),
+                )
+              else
+                FilledButton(
+                  onPressed: () => Navigator.pop(context, true),
+                  child: Text(
+                      shizukuActionLabel(granted: granted, running: running)),
+                ),
+            ],
           );
         });
     if (enable != true) return;
@@ -525,7 +527,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     saveSettings(updated);
     setState(() => _settings = updated);
     _refreshProfiles();
-    setState(() => _selected.add(normalized));  // 手动目录无 SAF，identity 即路径
+    setState(() => _selected.add(normalized)); // 手动目录无 SAF，identity 即路径
     _setStatus('已添加 ${p.basename(normalized)}');
   }
 
@@ -556,7 +558,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     final labelName = await showDialog<String>(
       context: context,
       builder: (context) {
-        final controller = TextEditingController(text: _safDefaultLabel(root!.uri));
+        final controller =
+            TextEditingController(text: _safDefaultLabel(root!.uri));
         return AlertDialog(
           title: const Text('命名这个目录'),
           content: TextField(
@@ -870,11 +873,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       // 版本未知的设备只有在「本进程能直接复制文件的目录」上才允许
       // 「先铺底再套增量」：SAF（元书）与 Shizuku 受限目录没有可直接读写的
       // 绝对路径，跨设备复制做不了，仍走完整包。
-      final seedUnknown =
-          _profiles.any((p) => _seedable(p) && _profileVersion(p).isEmpty) &&
-              _profiles.every(
-                  (p) => _profileVersion(p).isNotEmpty || _seedable(p)) &&
-              _profiles.any((p) => _seedable(p) && _profileVersion(p).isNotEmpty);
+      final seedUnknown = _profiles
+              .any((p) => _seedable(p) && _profileVersion(p).isEmpty) &&
+          _profiles
+              .every((p) => _profileVersion(p).isNotEmpty || _seedable(p)) &&
+          _profiles.any((p) => _seedable(p) && _profileVersion(p).isNotEmpty);
       final package = selectedScheme ??
           await preparePackage(
             settings: _settings,
@@ -912,8 +915,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       Profile? cloneSource;
 
       // 增量包场景：版本未知设备先铺底到增量基座，再统一套增量。
-      final deltaBase =
-          package.isDelta ? normalizeVersion(deltaBaseVersion(package.zipPath)) : '';
+      final deltaBase = package.isDelta
+          ? normalizeVersion(deltaBaseVersion(package.zipPath))
+          : '';
       if (deltaBase.isNotEmpty) {
         final unknownProfiles = picked
             .where((p) => _seedable(p) && _profileVersion(p).isEmpty)
@@ -1000,75 +1004,55 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
         // 单个设备失败不应中断整批：记录后继续下一个。
         try {
-        // SAF 目录（如元书）没有文件系统路径，走 SAF 专用安装流程。
-        if (profile.isSaf) {
-          final domain = profile.safUri!.split('/tree/').first;
-          final ok = await _saf.hasPermission(profile.safUri!) ||
-              await _saf.hasPermission(domain);
-          if (!ok) {
-            _logLine('✗ 该 SAF 目录的访问授权已失效，请移除后重新添加：${profile.label}');
-            _setStatus('SAF 授权失效，请重新添加 ${profile.label}', error: true);
+          // SAF 目录（如元书）没有文件系统路径，走 SAF 专用安装流程。
+          if (profile.isSaf) {
+            final domain = profile.safUri!.split('/tree/').first;
+            final ok = await _saf.hasPermission(profile.safUri!) ||
+                await _saf.hasPermission(domain);
+            if (!ok) {
+              _logLine('✗ 该 SAF 目录的访问授权已失效，请移除后重新添加：${profile.label}');
+              _setStatus('SAF 授权失效，请重新添加 ${profile.label}', error: true);
+              continue;
+            }
+            final result = await applyZipToSaf(
+              client: _saf,
+              rootUri: profile.safUri!,
+              zipPath: package.zipPath,
+              version: package.version,
+              snapshot: _settings.snapshot && !dryRun,
+              dryRun: dryRun,
+              log: _logLine,
+            );
+            _logLine('  SAF：${dryRun ? '将' : '已'}写入 ${result.copied} 个文件，'
+                '跳过 ${result.skipped} 个');
+            if (result.backupStamp.isNotEmpty) {
+              _logLine('  已创建 SAF 备份 ${result.backupStamp}');
+            }
+            if (!dryRun) {
+              _logLine('  注意：SAF 目录无法自动部署，请在元书内重新加载方案');
+            }
             continue;
           }
-          final result = await applyZipToSaf(
-            client: _saf,
-            rootUri: profile.safUri!,
-            zipPath: package.zipPath,
-            version: package.version,
-            snapshot: _settings.snapshot && !dryRun,
-            dryRun: dryRun,
-            log: _logLine,
-          );
-          _logLine('  SAF：${dryRun ? '将' : '已'}写入 ${result.copied} 个文件，'
-              '跳过 ${result.skipped} 个');
-          if (result.backupStamp.isNotEmpty) {
-            _logLine('  已创建 SAF 备份 ${result.backupStamp}');
-          }
-          if (!dryRun) {
-            _logLine('  注意：SAF 目录无法自动部署，请在元书内重新加载方案');
-          }
-          continue;
-        }
 
-        final localVersion = _profileVersion(profile);
-        final canClone = _seedable(profile) &&
-            localVersion.isEmpty &&
-            !package.isDelta &&
-            !dryRun &&
-            cloneSource != null;
-        if (canClone) {
-          _logLine('  版本未知，从「${cloneSource.label}」本地克隆'
-              '（v${package.version}，只复制方案文件）');
-        }
-        final ApplyStats stats = await withProfileDirectory(
-            profile,
-            (local) async {
-              if (canClone) {
-                return mirrorProfile(
-                  source: cloneSource!.path,
-                  target: local.path,
-                  version: package.version,
-                  dryRun: false,
-                  snapshot: _settings.snapshot,
-                  log: _logLine,
-                  onFile: (done, total) {
-                    if (!mounted) return;
-                    setState(() {
-                      _progress =
-                          (base + (total > 0 ? span * done ~/ total : span)) /
-                              100;
-                    });
-                  },
-                );
-              }
-              return applyZip(
-                zipPath: package.zipPath,
+          final localVersion = _profileVersion(profile);
+          final canClone = _seedable(profile) &&
+              localVersion.isEmpty &&
+              !package.isDelta &&
+              !dryRun &&
+              cloneSource != null;
+          if (canClone) {
+            _logLine('  版本未知，从「${cloneSource.label}」本地克隆'
+                '（v${package.version}，只复制方案文件）');
+          }
+          final ApplyStats stats =
+              await withProfileDirectory(profile, (local) async {
+            if (canClone) {
+              return mirrorProfile(
+                source: cloneSource!.path,
                 target: local.path,
                 version: package.version,
-                dryRun: dryRun,
+                dryRun: false,
                 snapshot: _settings.snapshot,
-                baseOverride:
-                    package.isDelta && localVersion.isEmpty ? deltaBase : '',
                 log: _logLine,
                 onFile: (done, total) {
                   if (!mounted) return;
@@ -1079,18 +1063,35 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                   });
                 },
               );
-            },
-            readOnly: dryRun);
-        if (stats.backupStamp != null) {
-          _logLine('  已创建备份 ${stats.backupStamp}');
-        }
-        // 后续的版本未知设备可以从这台已更新完成的设备直接克隆。
-        if (!dryRun && _seedable(profile)) cloneSource = profile;
+            }
+            return applyZip(
+              zipPath: package.zipPath,
+              target: local.path,
+              version: package.version,
+              dryRun: dryRun,
+              snapshot: _settings.snapshot,
+              baseOverride:
+                  package.isDelta && localVersion.isEmpty ? deltaBase : '',
+              log: _logLine,
+              onFile: (done, total) {
+                if (!mounted) return;
+                setState(() {
+                  _progress =
+                      (base + (total > 0 ? span * done ~/ total : span)) / 100;
+                });
+              },
+            );
+          }, readOnly: dryRun);
+          if (stats.backupStamp != null) {
+            _logLine('  已创建备份 ${stats.backupStamp}');
+          }
+          // 后续的版本未知设备可以从这台已更新完成的设备直接克隆。
+          if (!dryRun && _seedable(profile)) cloneSource = profile;
 
-        if (_settings.deploy && !dryRun) {
-          await deployProfile(profile,
-              restart: _settings.restart, log: _logLine);
-        }
+          if (_settings.deploy && !dryRun) {
+            await deployProfile(profile,
+                restart: _settings.restart, log: _logLine);
+          }
         } catch (error) {
           _logLine('✗ ${profile.label} 失败：$error');
           failed.add(profile.label);
@@ -1401,8 +1402,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     try {
       final removed = await withProfileDirectory(
         profile,
-        (local) async =>
-            rime.clearRimeDir(local.path, log: _logLine),
+        (local) async => rime.clearRimeDir(local.path, log: _logLine),
       );
       setState(() => _progress = 1);
       _setStatus('已清空 ${profile.label}（$removed 项）');
@@ -1628,8 +1628,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   }
 
   /// 切页动画：按切换方向横向滑入/滑出，并叠加淡入淡出。
-  Widget _buildAnimatedPage(
-      double width, ThemeData theme, {required bool compact}) {
+  Widget _buildAnimatedPage(double width, ThemeData theme,
+      {required bool compact}) {
     final direction = _tab >= _prevTab ? 1.0 : -1.0;
     final currentKey = ValueKey('page-$_tab');
     return ClipRect(
@@ -1728,7 +1728,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   }
 
   Widget _buildMorePage(ThemeData theme, {required bool compact}) {
-    Widget tile(IconData icon, String title, String subtitle, VoidCallback? onTap) {
+    Widget tile(
+        IconData icon, String title, String subtitle, VoidCallback? onTap) {
       return Card(
         margin: const EdgeInsets.only(bottom: 8),
         child: ListTile(
@@ -1748,15 +1749,15 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         Text('更多', style: theme.textTheme.titleMedium),
         const SizedBox(height: 4),
         Text('装包、换方案与设备访问',
-            style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant)),
+            style: theme.textTheme.bodySmall
+                ?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
         const SizedBox(height: 14),
         tile(Icons.cloud_download_outlined, 'GitHub 方案',
             '从任意 GitHub 仓库的 Release 安装', _installFromGithub),
-        tile(Icons.inventory_2_outlined, '本地方案',
-            '管理下载 / 导入的方案包，可指定优先更新', _openLocalSchemes),
-        tile(Icons.swap_horiz_rounded, '换方案',
-            '备份个人数据后整体替换为另一套方案', _switchScheme),
+        tile(Icons.inventory_2_outlined, '本地方案', '管理下载 / 导入的方案包，可指定优先更新',
+            _openLocalSchemes),
+        tile(Icons.swap_horiz_rounded, '换方案', '备份个人数据后整体替换为另一套方案',
+            _switchScheme),
         if (Platform.isAndroid)
           tile(Icons.admin_panel_settings_outlined, 'Android 权限与 Shizuku',
               '公共目录授权、受限目录访问状态', _openAndroidAccess),
@@ -1952,7 +1953,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       child: Text(
         'R',
         style: TextStyle(
-          fontFamily: 'Menlo', fontFamilyFallback: ['Consolas', 'monospace', 'Courier New'],
+          fontFamily: 'Menlo',
+          fontFamilyFallback: ['Consolas', 'monospace', 'Courier New'],
           color: theme.colorScheme.onPrimary,
           fontSize: size * 0.5,
           fontWeight: FontWeight.w700,
@@ -2014,7 +2016,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         Text(
           value,
           style: TextStyle(
-            fontFamily: 'Menlo', fontFamilyFallback: ['Consolas', 'monospace', 'Courier New'],
+            fontFamily: 'Menlo',
+            fontFamilyFallback: ['Consolas', 'monospace', 'Courier New'],
             fontSize: 18,
             fontWeight: FontWeight.w700,
             height: 1.0,
@@ -2115,8 +2118,14 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               child: Text(_settings.repo,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.bodySmall
-                      ?.copyWith(fontSize: 10.5, fontFamily: 'Menlo', fontFamilyFallback: ['Consolas', 'monospace', 'Courier New']))),
+                  style: theme.textTheme.bodySmall?.copyWith(
+                      fontSize: 10.5,
+                      fontFamily: 'Menlo',
+                      fontFamilyFallback: [
+                        'Consolas',
+                        'monospace',
+                        'Courier New'
+                      ]))),
           const SizedBox(width: 8),
           Flexible(
               child: Text(_status,
@@ -2223,10 +2232,21 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                     padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
                     itemCount: _profiles.length,
                     onReorderItem: _reorderProfiles,
-                    itemBuilder: (context, index) => _buildDeviceRow(
-                        theme, _profiles[index], index),
+                    itemBuilder: (context, index) =>
+                        _buildDeviceRow(theme, _profiles[index], index),
                   ),
           ),
+          if (_profiles.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+              child: Text(
+                '向左滑动设备行可删除；按住行末三条杠可拖动排序',
+                style: theme.textTheme.labelSmall?.copyWith(
+                  fontSize: 10,
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ),
         ],
       ),
     );
@@ -2254,153 +2274,187 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     setState(() => _settings = updated);
   }
 
+  /// 删除设备行：SAF 目录走「移除 SAF 目录」，其余走「删除设备」。
+  Future<void> _removeProfileEntry(Profile profile) async {
+    if (profile.isSaf) {
+      final item = _settings.safDirs.firstWhere(
+        (e) => e['uri'] == profile.safUri,
+        orElse: () => <String, dynamic>{},
+      );
+      if (item.isNotEmpty) await _removeSafDir(item);
+      return;
+    }
+    await _removeProfile(profile);
+  }
+
   Widget _buildDeviceRow(ThemeData theme, Profile profile, int index) {
     final current = _profileVersion(profile);
     final selected = _selected.contains(profile.identity);
     final radius = BorderRadius.circular(12);
+    // 滑动时下面会露出删除按钮，行内容必须是不透明底色。
+    final surface = theme.colorScheme.surface;
+    final rowColor = selected
+        ? Color.alphaBlend(
+            theme.colorScheme.primary.withValues(alpha: .07), surface)
+        : surface;
     return Padding(
       key: ValueKey(profile.identity),
       padding: const EdgeInsets.only(bottom: 2),
-      child: Material(
-        color: selected
-            ? theme.colorScheme.primary.withValues(alpha: .07)
-            : Colors.transparent,
-        borderRadius: radius,
-        child: InkWell(
+      child: SwipeActionRow(
+        background: rowColor,
+        enabled: !_busy,
+        actionWidth: 84,
+        onAction: () => _removeProfileEntry(profile),
+        child: Material(
+          color: rowColor,
           borderRadius: radius,
-          onTap: _busy ? null : () => _toggleProfile(profile),
-          child: Semantics(
-            label: profile.label,
-            checked: selected,
-            enabled: !_busy,
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(10, 10, 4, 10),
-              child: Row(
-                children: [
-                  _buildSelectBox(theme, selected),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Flexible(
-                              child: Text(
-                                profile.label,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  fontSize: 13.5,
-                                  fontWeight: FontWeight.w600,
-                                  letterSpacing: -0.1,
-                                ),
-                              ),
-                            ),
-                            if (_settings.customDirs
-                                .contains(profile.path)) ...[
-                              const SizedBox(width: 6),
-                              InkWell(
-                                onTap: _busy
-                                    ? null
-                                    : () => _renameProfile(profile),
-                                borderRadius: BorderRadius.circular(4),
-                                child: Padding(
-                                  padding: const EdgeInsets.all(3),
-                                  child: Icon(
-                                    Icons.edit_outlined,
-                                    size: 13,
-                                    color: theme.colorScheme.onSurfaceVariant,
+          child: InkWell(
+            borderRadius: radius,
+            onTap: _busy ? null : () => _toggleProfile(profile),
+            child: Semantics(
+              label: profile.label,
+              checked: selected,
+              enabled: !_busy,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(10, 10, 4, 10),
+                child: Row(
+                  children: [
+                    _buildSelectBox(theme, selected),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Flexible(
+                                child: Text(
+                                  profile.label,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    fontSize: 13.5,
+                                    fontWeight: FontWeight.w600,
+                                    letterSpacing: -0.1,
                                   ),
                                 ),
                               ),
+                              if (_settings.customDirs
+                                  .contains(profile.path)) ...[
+                                const SizedBox(width: 6),
+                                InkWell(
+                                  onTap: _busy
+                                      ? null
+                                      : () => _renameProfile(profile),
+                                  borderRadius: BorderRadius.circular(4),
+                                  child: Padding(
+                                    padding: const EdgeInsets.all(3),
+                                    child: Icon(
+                                      Icons.edit_outlined,
+                                      size: 13,
+                                      color: theme.colorScheme.onSurfaceVariant,
+                                    ),
+                                  ),
+                                ),
+                              ],
                             ],
-                          ],
-                        ),
-                        const SizedBox(height: 5),
-                        Wrap(
-                            spacing: 8,
-                            runSpacing: 4,
-                            crossAxisAlignment: WrapCrossAlignment.center,
-                            children: [
-                              _buildStatusChip(theme, current),
-                              Text(current.isEmpty ? '版本未知' : 'v$current',
-                                  style: theme.textTheme.bodySmall?.copyWith(
-                                      fontFamily: 'Menlo', fontFamilyFallback: ['Consolas', 'monospace', 'Courier New'], fontSize: 10.5)),
-                            ]),
-                        const SizedBox(height: 4),
-                        Text(
-                          profile.path,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            fontFamily: 'Menlo', fontFamilyFallback: ['Consolas', 'monospace', 'Courier New'],
-                            fontSize: 10.5,
-                            color: theme.colorScheme.onSurfaceVariant,
                           ),
-                        ),
+                          const SizedBox(height: 5),
+                          Wrap(
+                              spacing: 8,
+                              runSpacing: 4,
+                              crossAxisAlignment: WrapCrossAlignment.center,
+                              children: [
+                                _buildStatusChip(theme, current),
+                                Text(current.isEmpty ? '版本未知' : 'v$current',
+                                    style: theme.textTheme.bodySmall?.copyWith(
+                                        fontFamily: 'Menlo',
+                                        fontFamilyFallback: [
+                                          'Consolas',
+                                          'monospace',
+                                          'Courier New'
+                                        ],
+                                        fontSize: 10.5)),
+                              ]),
+                          const SizedBox(height: 4),
+                          Text(
+                            profile.path,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontFamily: 'Menlo',
+                              fontFamilyFallback: [
+                                'Consolas',
+                                'monospace',
+                                'Courier New'
+                              ],
+                              fontSize: 10.5,
+                              color: theme.colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    PopupMenuButton<String>(
+                      tooltip: '更多操作',
+                      enabled: !_busy,
+                      iconSize: 18,
+                      padding: EdgeInsets.zero,
+                      icon: Icon(
+                        Icons.more_vert,
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                      onSelected: (value) {
+                        if (value == 'rename') {
+                          _renameProfile(profile);
+                        } else if (value == 'clear') {
+                          _clearProfile(profile);
+                        } else if (value == 'removeSaf') {
+                          final item = _settings.safDirs.firstWhere(
+                            (e) => e['uri'] == profile.safUri,
+                            orElse: () => <String, dynamic>{},
+                          );
+                          if (item.isNotEmpty) _removeSafDir(item);
+                        } else if (value == 'remove') {
+                          _removeProfile(profile);
+                        }
+                      },
+                      itemBuilder: (context) => [
+                        const PopupMenuItem(
+                            value: 'rename', child: Text('重命名设备')),
+                        if (!profile.isSaf)
+                          const PopupMenuItem(
+                              value: 'clear', child: Text('清空 Rime 目录')),
+                        const PopupMenuDivider(),
+                        if (profile.isSaf)
+                          const PopupMenuItem(
+                              value: 'removeSaf', child: Text('移除 SAF 目录'))
+                        else
+                          const PopupMenuItem(
+                              value: 'remove', child: Text('删除设备')),
                       ],
                     ),
-                  ),
-                  PopupMenuButton<String>(
-                    tooltip: '更多操作',
-                    enabled: !_busy,
-                    iconSize: 18,
-                    padding: EdgeInsets.zero,
-                    icon: Icon(
-                      Icons.more_vert,
-                      color: theme.colorScheme.onSurfaceVariant,
-                    ),
-                    onSelected: (value) {
-                      if (value == 'rename') {
-                        _renameProfile(profile);
-                      } else if (value == 'clear') {
-                        _clearProfile(profile);
-                      } else if (value == 'removeSaf') {
-                        final item = _settings.safDirs.firstWhere(
-                          (e) => e['uri'] == profile.safUri,
-                          orElse: () => <String, dynamic>{},
-                        );
-                        if (item.isNotEmpty) _removeSafDir(item);
-                      } else if (value == 'remove') {
-                        _removeProfile(profile);
-                      }
-                    },
-                    itemBuilder: (context) => [
-                      const PopupMenuItem(
-                          value: 'rename', child: Text('重命名设备')),
-                      if (!profile.isSaf)
-                        const PopupMenuItem(
-                            value: 'clear', child: Text('清空 Rime 目录')),
-                      const PopupMenuDivider(),
-                      if (profile.isSaf)
-                        const PopupMenuItem(
-                            value: 'removeSaf', child: Text('移除 SAF 目录'))
-                      else
-                        const PopupMenuItem(
-                            value: 'remove', child: Text('删除设备')),
-                    ],
-                  ),
-                  ReorderableDragStartListener(
-                    index: index,
-                    enabled: !_busy,
-                    child: MouseRegion(
-                      cursor: SystemMouseCursors.grab,
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 8, vertical: 12),
-                        child: Tooltip(
-                          message: '拖动排序',
-                          child: Icon(
-                            Icons.drag_handle_rounded,
-                            size: 20,
-                            color: theme.colorScheme.onSurfaceVariant,
+                    ReorderableDragStartListener(
+                      index: index,
+                      enabled: !_busy,
+                      child: MouseRegion(
+                        cursor: SystemMouseCursors.grab,
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 8, vertical: 12),
+                          child: Tooltip(
+                            message: '拖动排序',
+                            child: Icon(
+                              Icons.drag_handle_rounded,
+                              size: 20,
+                              color: theme.colorScheme.onSurfaceVariant,
+                            ),
                           ),
                         ),
                       ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
           ),
@@ -2430,13 +2484,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             Icon(Icons.circle, size: 7, color: color),
             const SizedBox(width: 5),
             Text(
-                narrow ? short : label,
-                style: theme.textTheme.labelSmall?.copyWith(
-                  color: color,
-                  fontSize: 10.5,
-                  fontWeight: FontWeight.w600,
-                ),
+              narrow ? short : label,
+              style: theme.textTheme.labelSmall?.copyWith(
+                color: color,
+                fontSize: 10.5,
+                fontWeight: FontWeight.w600,
               ),
+            ),
           ]),
         ),
       ),
@@ -2591,7 +2645,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 Text(
                   _log.isEmpty ? 'IDLE' : '${_log.length} LINES',
                   style: const TextStyle(
-                    fontFamily: 'Menlo', fontFamilyFallback: ['Consolas', 'monospace', 'Courier New'],
+                    fontFamily: 'Menlo',
+                    fontFamilyFallback: [
+                      'Consolas',
+                      'monospace',
+                      'Courier New'
+                    ],
                     fontSize: 10,
                     letterSpacing: .6,
                     color: AppColors.consoleMuted,
@@ -2625,7 +2684,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                       child: SelectableText.rich(
                         TextSpan(children: _logSpans()),
                         style: const TextStyle(
-                          fontFamily: 'Menlo', fontFamilyFallback: ['Consolas', 'monospace', 'Courier New'],
+                          fontFamily: 'Menlo',
+                          fontFamilyFallback: [
+                            'Consolas',
+                            'monospace',
+                            'Courier New'
+                          ],
                           fontSize: 12,
                           height: 1.6,
                           color: AppColors.consoleText,
@@ -2677,7 +2741,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                       Text(
                         '$from → $to',
                         style: TextStyle(
-                          fontFamily: 'Menlo', fontFamilyFallback: ['Consolas', 'monospace', 'Courier New'],
+                          fontFamily: 'Menlo',
+                          fontFamilyFallback: [
+                            'Consolas',
+                            'monospace',
+                            'Courier New'
+                          ],
                           fontSize: 10.5,
                           color: theme.colorScheme.onSurfaceVariant,
                         ),

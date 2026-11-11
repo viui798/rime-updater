@@ -86,7 +86,7 @@ Android 的设置与缓存都在应用私有目录（`files/cheese-tiger/`），
 | `app/lib/ui/home_nav.dart` | 底部导航（滑动胶囊） |
 | `app/lib/ui/sync_dialog.dart` / `sync_library_dialog.dart` / `settings_dialog.dart` | 可内嵌的页面组件 |
 | `app/android/.../ShizukuBridge.kt` / `RimeFileService.kt` | Shizuku 绑定与受限目录文件服务 |
-| `app/test/` | 13 个测试文件，97 项；改核心逻辑必须补测试 |
+| `app/test/` | 13 个测试文件，99 项；改核心逻辑必须补测试 |
 | `ios/scripting/cheese-tiger-updater/` | iOS 脚本（0.12.0，四 Tab + 本地方案 + 铺底 / 克隆 + 镜像与 API 兜底） |
 | `.github/workflows/build.yml` | 推 `v*` tag 或手动触发：三平台构建，tag 时建 Release |
 | `update_desktop.py` / `gui_app.py` / `web/` / `build_app.py` | Python 参照实现与备用 Web 界面 |
@@ -198,6 +198,9 @@ npx --no-install esbuild index.tsx --bundle --loader:.tsx=tsx --external:scripti
   不再请求 Release；没有勾选时才走版本检查，命中同资产名的包会复用缓存。
 - 设备顺序存在 `deviceOrder`（identity：SAF 用 URI，其余用路径），
   `applyDeviceOrder` 排序；拖动用 `ReorderableDelayedDragStartListener` + `drag_handle`。
+- 设备行支持**向左滑动删除**（`ui/swipe_action_row.dart`）：滑开只露按钮，
+  点「删除」才走原来的确认弹窗，避免误触直接删；行内容必须给不透明底色，
+  否则会透出红色按钮。⋮ 菜单里的删除保留，两种入口等价。
 
 **Android / SAF**
 - `pickDirectory` 必须显式传 `persistablePermission: true`，否则重启后 Permission Denial。
