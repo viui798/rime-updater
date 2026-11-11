@@ -2409,14 +2409,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                           _renameProfile(profile);
                         } else if (value == 'clear') {
                           _clearProfile(profile);
-                        } else if (value == 'removeSaf') {
-                          final item = _settings.safDirs.firstWhere(
-                            (e) => e['uri'] == profile.safUri,
-                            orElse: () => <String, dynamic>{},
-                          );
-                          if (item.isNotEmpty) _removeSafDir(item);
-                        } else if (value == 'remove') {
-                          _removeProfile(profile);
                         }
                       },
                       itemBuilder: (context) => [
@@ -2425,13 +2417,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                         if (!profile.isSaf)
                           const PopupMenuItem(
                               value: 'clear', child: Text('清空 Rime 目录')),
-                        const PopupMenuDivider(),
-                        if (profile.isSaf)
-                          const PopupMenuItem(
-                              value: 'removeSaf', child: Text('移除 SAF 目录'))
-                        else
-                          const PopupMenuItem(
-                              value: 'remove', child: Text('删除设备')),
                       ],
                     ),
                     ReorderableDragStartListener(

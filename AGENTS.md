@@ -201,7 +201,8 @@ npx --no-install esbuild index.tsx --bundle --loader:.tsx=tsx --external:scripti
 - 设备行支持**向左滑动删除**（`ui/swipe_action_row.dart`）：滑开只露按钮，
   点「删除」才走原来的确认弹窗，避免误触直接删；行内容必须给不透明底色，
   否则会透出红色按钮。滑开后**向右滑或点行内容可收回**（拖动监听要包住整行，
-  只包内容区的话手指落在按钮 / 遮罩上收不回来）。⋮ 菜单里的删除保留，两种入口等价。
+  只包内容区的话手指落在按钮 / 遮罩上收不回来）。⋮ 菜单只留重命名 / 清空目录，
+  删除只走滑动这一个入口。
 
 **Android / SAF**
 - `pickDirectory` 必须显式传 `persistablePermission: true`，否则重启后 Permission Denial。

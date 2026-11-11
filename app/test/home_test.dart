@@ -105,7 +105,8 @@ void main() {
 
     expect(find.text('重命名设备'), findsOneWidget);
     expect(find.text('清空 Rime 目录'), findsOneWidget);
-    expect(find.text('删除设备'), findsOneWidget);
+    // 删除已改为「向左滑动设备行」，菜单里不再提供。
+    expect(find.text('删除设备'), findsNothing);
 
     // 清空必须二次确认，且明确写出不可恢复
     await tester.tap(find.text('清空 Rime 目录'));
