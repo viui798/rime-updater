@@ -53,8 +53,9 @@ class _SwipeActionRowState extends State<SwipeActionRow> {
   void _onDragEnd(DragEndDetails details) {
     if (!widget.enabled) return;
     final velocity = details.primaryVelocity ?? 0;
-    // 快速左滑或滑过一半就展开，否则收回。
-    final shouldOpen = velocity < -250 || _offset < -widget.actionWidth * .5;
+    // 快速滑动按方向判断（左滑展开、右滑收回），慢速则看是否过半。
+    final shouldOpen = velocity < -250 ||
+        (velocity >= 0 && _offset < -widget.actionWidth * .5);
     setState(() {
       _dragging = false;
       _offset = shouldOpen ? -widget.actionWidth : 0;
@@ -70,66 +71,65 @@ class _SwipeActionRowState extends State<SwipeActionRow> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final background = widget.background ?? theme.colorScheme.surface;
-    return Stack(
-      children: [
-        Positioned.fill(
-          child: Align(
-            alignment: Alignment.centerRight,
-            child: SizedBox(
-              width: widget.actionWidth,
-              child: Material(
-                color: theme.colorScheme.error,
-                child: InkWell(
-                  onTap: widget.enabled && _open ? _run : null,
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(widget.icon,
-                          size: 18, color: theme.colorScheme.onError),
-                      const SizedBox(height: 3),
-                      Text(
-                        widget.label,
-                        style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w600,
-                          color: theme.colorScheme.onError,
+    // 拖动监听包住整行：滑开后手指落在任意位置向右滑都能收回，
+    // 而不是只有行内容区域可拖（操作按钮与遮罩都会挡住内容区）。
+    return GestureDetector(
+      onHorizontalDragStart: _onDragStart,
+      onHorizontalDragUpdate: _onDragUpdate,
+      onHorizontalDragEnd: _onDragEnd,
+      child: Stack(
+        children: [
+          Positioned.fill(
+            child: Align(
+              alignment: Alignment.centerRight,
+              child: SizedBox(
+                width: widget.actionWidth,
+                child: Material(
+                  color: theme.colorScheme.error,
+                  child: InkWell(
+                    onTap: widget.enabled && _open ? _run : null,
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(widget.icon,
+                            size: 18, color: theme.colorScheme.onError),
+                        const SizedBox(height: 3),
+                        Text(
+                          widget.label,
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                            color: theme.colorScheme.onError,
+                          ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
               ),
             ),
           ),
-        ),
-        AnimatedContainer(
-          duration:
-              _dragging ? Duration.zero : const Duration(milliseconds: 160),
-          curve: Curves.easeOut,
-          transform: Matrix4.translationValues(_offset, 0, 0),
-          child: Container(
-            color: background,
-            child: GestureDetector(
-              onHorizontalDragStart: _onDragStart,
-              onHorizontalDragUpdate: _onDragUpdate,
-              onHorizontalDragEnd: _onDragEnd,
-              child: widget.child,
-            ),
+          AnimatedContainer(
+            duration:
+                _dragging ? Duration.zero : const Duration(milliseconds: 160),
+            curve: Curves.easeOut,
+            transform: Matrix4.translationValues(_offset, 0, 0),
+            child: Container(color: background, child: widget.child),
           ),
-        ),
-        if (_open)
-          Positioned(
-            left: 0,
-            top: 0,
-            bottom: 0,
-            right: widget.actionWidth,
-            child: GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onTap: _close,
-              child: const SizedBox.expand(),
+          if (_open)
+            Positioned(
+              left: 0,
+              top: 0,
+              bottom: 0,
+              right: widget.actionWidth,
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: _close,
+                child: const SizedBox.expand(),
+              ),
             ),
-          ),
-      ],
+        ],
+      ),
     );
   }
 }

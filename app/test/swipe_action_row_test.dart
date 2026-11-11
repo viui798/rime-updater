@@ -48,6 +48,37 @@ void main() {
     expect(deleted, 1);
   });
 
+  testWidgets('滑开后向右滑可以收回', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: ListView(
+            children: [
+              SwipeActionRow(
+                onAction: () async {},
+                child: const SizedBox(height: 60, child: Text('设备 C')),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    await tester.drag(find.text('设备 C'), const Offset(-120, 0));
+    await tester.pumpAndSettle();
+    expect(find.text('删除'), findsOneWidget);
+
+    // 右滑收回后，删除按钮应被行内容盖住，点它不会执行删除。
+    await tester.drag(find.text('设备 C'), const Offset(120, 0));
+    await tester.pumpAndSettle();
+    final button = find.text('删除');
+    if (button.evaluate().isNotEmpty) {
+      final rect = tester.getRect(button);
+      final hit = tester.hitTestOnBinding(rect.center);
+      expect(hit.path.any((entry) => entry.target is InkWell), isFalse);
+    }
+  });
+
   testWidgets('滑动不足一半会收回', (tester) async {
     await tester.pumpWidget(
       MaterialApp(
